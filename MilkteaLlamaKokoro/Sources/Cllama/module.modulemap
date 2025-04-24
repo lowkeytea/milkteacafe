@@ -1,0 +1,4 @@
+module llama [system] {
+    header "/usr/local/include/llama.h"
+    export *
+}
