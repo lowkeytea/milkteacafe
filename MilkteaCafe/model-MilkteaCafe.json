@@ -1,0 +1,101 @@
+{
+  "_note1": "KEEP THIS FILE! Check it into a version control system (VCS) like git.",
+  "_note2": "ObjectBox manages crucial IDs for your object model. See docs for details.",
+  "_note3": "If you have VCS merge conflicts, you must resolve them according to ObjectBox docs.",
+  "entities": [
+    {
+      "id": "1:7304039349432266496",
+      "lastPropertyId": "5:2934593687437153792",
+      "name": "Message",
+      "properties": [
+        {
+          "flags": 1,
+          "id": "1:5503711839563083776",
+          "name": "id",
+          "type": 6
+        },
+        {
+          "id": "2:647092059768449024",
+          "name": "role",
+          "type": 9
+        },
+        {
+          "id": "3:4475357643649253120",
+          "name": "category",
+          "type": 9
+        },
+        {
+          "id": "4:6214067988967140352",
+          "name": "content",
+          "type": 9
+        },
+        {
+          "id": "5:2934593687437153792",
+          "name": "timestamp",
+          "type": 10
+        }
+      ],
+      "relations": []
+    },
+    {
+      "id": "2:7381594294969394688",
+      "lastPropertyId": "7:8986195772624444672",
+      "name": "MessageSegment",
+      "properties": [
+        {
+          "flags": 1,
+          "id": "1:3426147468643141632",
+          "name": "id",
+          "type": 6
+        },
+        {
+          "id": "2:9201054686191175936",
+          "name": "category",
+          "type": 9
+        },
+        {
+          "id": "3:7700704624860101376",
+          "name": "content",
+          "type": 9
+        },
+        {
+          "id": "4:5453624712666520576",
+          "name": "position",
+          "type": 6
+        },
+        {
+          "id": "5:4772110707277018624",
+          "name": "createdAt",
+          "type": 10
+        },
+        {
+          "flags": 8,
+          "id": "6:5379588099506419712",
+          "indexId": "1:4222653835946004224",
+          "name": "embedding",
+          "type": 28
+        },
+        {
+          "flags": 520,
+          "id": "7:8986195772624444672",
+          "indexId": "2:2345013675136534784",
+          "name": "parentMessage",
+          "relationTarget": "Message",
+          "type": 11
+        }
+      ],
+      "relations": []
+    }
+  ],
+  "lastEntityId": "2:7381594294969394688",
+  "lastIndexId": "2:2345013675136534784",
+  "lastRelationId": "0:0",
+  "lastSequenceId": "0:0",
+  "modelVersion": 5,
+  "modelVersionParserMinimum": 4,
+  "retiredEntityUids": [],
+  "retiredIndexUids": [],
+  "retiredPropertyUids": [],
+  "retiredRelationUids": [],
+  "version": 1
+}

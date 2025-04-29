@@ -60,7 +60,6 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
-MilkteaCafe/sherpa-onnx/
 MilkteaCafe/MilkteaCafe/KokoroData/
 MilkteaCafe/MilkteaCafe.xcodeproj/
 MilkteaCafe/MilkteaCafe/MilkteaCafe.entitlements

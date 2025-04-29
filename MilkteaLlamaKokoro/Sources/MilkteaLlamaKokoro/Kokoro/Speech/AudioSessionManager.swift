@@ -250,10 +250,15 @@ class AudioSessionManager {
             }
             
             // Ensure microphone is available
-            let session = AVAudioApplication.shared
-            if session.recordPermission != .granted {
-                logger.warning("⚠️ Record permission not granted for microphone")
+            if #available(iOS 17.0, *) {
+                let session = AVAudioApplication.shared
+                if session.recordPermission != .granted {
+                    logger.warning("⚠️ Record permission not granted for microphone")
+                }
+            } else {
+                // Fallback on earlier versions
             }
+        
         }
     }
     

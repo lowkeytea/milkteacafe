@@ -12,6 +12,7 @@ class AudioCoordinator: ObservableObject {
     
     /// Shared instance for app-wide access
     static let shared = AudioCoordinator()
+    let logger = KokoroLogger.create(for: AudioCoordinator.self)
     
     // MARK: - State Management
     
@@ -92,7 +93,7 @@ class AudioCoordinator: ObservableObject {
         setupSpeechRecognition()
         // Listen for KokoroEngine playback events
         setupPlaybackStateListener()
-        LoggerService.shared.debug("AudioCoordinator: Initialized")
+        logger.d("AudioCoordinator: Initialized")
     }
     
     // MARK: - Setup Methods
@@ -105,7 +106,7 @@ class AudioCoordinator: ObservableObject {
         // Get recording format from input node
         recordingFormat = microphoneInputNode.outputFormat(forBus: 0)
         
-        LoggerService.shared.debug("AudioCoordinator: Audio nodes set up")
+        logger.d("AudioCoordinator: Audio nodes set up")
     }
     
     /// Set up monitoring for audio route changes (headphones connected/disconnected)
@@ -118,7 +119,7 @@ class AudioCoordinator: ObservableObject {
         
         // Initialize with current state
         isUsingHeadphones = AudioRouteMonitor.shared.isRoutedToHeadphones
-        LoggerService.shared.debug("AudioCoordinator: Initial headphone state - \(isUsingHeadphones)")
+        logger.d("AudioCoordinator: Initial headphone state - \(isUsingHeadphones)")
     }
     
     /// Listen to KokoroEngine playback events via Combine publisher subscription
@@ -169,7 +170,7 @@ class AudioCoordinator: ObservableObject {
     /// Toggle listening mode on/off
     func toggleListening() {
         isListeningEnabled.toggle()
-        LoggerService.shared.debug("AudioCoordinator: Toggled listening to \(isListeningEnabled)")
+        logger.d("AudioCoordinator: Toggled listening to \(isListeningEnabled)")
         
         if isListeningEnabled {
             // Check permissions before starting
@@ -182,7 +183,7 @@ class AudioCoordinator: ObservableObject {
                     DispatchQueue.main.async {
                         self.isListeningEnabled = false
                     }
-                    LoggerService.shared.warning("AudioCoordinator: Speech recognition permission denied")
+                    logger.w("AudioCoordinator: Speech recognition permission denied")
                 }
             }
         } else {
@@ -196,7 +197,7 @@ class AudioCoordinator: ObservableObject {
         
         // If TTS is playing and we're in speaker mode, we can't listen
         if currentState == .playingTTS && !isUsingHeadphones {
-            LoggerService.shared.debug("AudioCoordinator: Can't start listening - TTS playing in speaker mode")
+            logger.d("AudioCoordinator: Can't start listening - TTS playing in speaker mode")
             return
         }
         
@@ -211,7 +212,7 @@ class AudioCoordinator: ObservableObject {
     
     func stopListeningIfUsingSpeakers() {
         if (!isUsingHeadphones) {
-            LoggerService.shared.info("Stopping listening as we're using speakers")
+            logger.i("Stopping listening as we're using speakers")
             stopListening()
         }
     }
@@ -227,7 +228,7 @@ class AudioCoordinator: ObservableObject {
             }
         }
         
-        LoggerService.shared.debug("AudioCoordinator: Stopped listening")
+        logger.d("AudioCoordinator: Stopped listening")
     }
     
     /// Submit the transcribed text
@@ -236,7 +237,7 @@ class AudioCoordinator: ObservableObject {
         
         // Capture the text to submit
         let textToSubmit = transcribedText
-        LoggerService.shared.debug("AudioCoordinator: Submitting text: \(textToSubmit)")
+        logger.d("AudioCoordinator: Submitting text: \(textToSubmit)")
         
         // Stop listening
         stopListeningIfUsingSpeakers()
@@ -281,9 +282,9 @@ class AudioCoordinator: ObservableObject {
                 self.startInactivityTimer()
                 // Update state
                 self.currentState = .listening
-                LoggerService.shared.debug("AudioCoordinator: Started listening")
+                logger.d("AudioCoordinator: Started listening")
             } else {
-                LoggerService.shared.error("AudioCoordinator: Failed to start speech recognition")
+                logger.e("AudioCoordinator: Failed to start speech recognition")
             }
         }
     }
@@ -296,7 +297,7 @@ class AudioCoordinator: ObservableObject {
         // Stop speech recognition
         speechRecognizer.stopRecognition()
         
-        LoggerService.shared.debug("AudioCoordinator: Stopped microphone capture")
+        logger.d("AudioCoordinator: Stopped microphone capture")
     }
     
     /// Start timer to check for speech inactivity
@@ -323,7 +324,7 @@ class AudioCoordinator: ObservableObject {
                 RunLoop.main.add(timer, forMode: .common)
             }
             
-            LoggerService.shared.debug("AudioCoordinator: Started inactivity timer on main thread")
+            logger.d("AudioCoordinator: Started inactivity timer on main thread")
         }
     }
     
@@ -340,13 +341,13 @@ class AudioCoordinator: ObservableObject {
         let timeSinceLastUpdate = Date().timeIntervalSince(lastUpdate)
         
         #if DEBUG
-        LoggerService.shared.debug("AudioCoordinator: Checking inactivity - time since last update: \(timeSinceLastUpdate)s")
+        logger.d("AudioCoordinator: Checking inactivity - time since last update: \(timeSinceLastUpdate)s")
         #endif
         
         // Auto-submit if threshold reached
         if timeSinceLastUpdate >= inactivityThresholdForSubmit {
             #if DEBUG
-            LoggerService.shared.info("AudioCoordinator: No new transcription for \(timeSinceLastUpdate)s — auto-submitting")
+            logger.i("AudioCoordinator: No new transcription for \(timeSinceLastUpdate)s — auto-submitting")
             #endif
             
             DispatchQueue.main.async { [weak self] in
@@ -364,7 +365,7 @@ class AudioCoordinator: ObservableObject {
             let stateChanged = self.isUsingHeadphones != isUsingHeadphones
             self.isUsingHeadphones = isUsingHeadphones  // Now safe on main thread
             
-            LoggerService.shared.debug("AudioCoordinator: Headphone status changed to \(isUsingHeadphones)")
+            logger.d("AudioCoordinator: Headphone status changed to \(isUsingHeadphones)")
             
             if stateChanged {
                 Task {
@@ -391,7 +392,7 @@ class AudioCoordinator: ObservableObject {
     
     /// Handle TTS playback started
     private func handleTTSStarted() {
-        LoggerService.shared.debug("AudioCoordinator: TTS playback started")
+        logger.d("AudioCoordinator: TTS playback started")
         
         // Update state
         currentState = .playingTTS
@@ -402,7 +403,7 @@ class AudioCoordinator: ObservableObject {
     
     /// Handle TTS playback stopped
     private func handleTTSStopped() {
-        LoggerService.shared.debug("AudioCoordinator: TTS playback stopped")
+        logger.d("AudioCoordinator: TTS playback stopped")
         
         // Update state
         currentState = .idle
@@ -420,7 +421,7 @@ class AudioCoordinator: ObservableObject {
     
     /// Handle audio session interruption
     private func handleInterruption(began: Bool) {
-        LoggerService.shared.debug("AudioCoordinator: Handling audio interruption, began: \(began)")
+        logger.d("AudioCoordinator: Handling audio interruption, began: \(began)")
         
         if began {
             // Store state before interruption
@@ -438,7 +439,7 @@ class AudioCoordinator: ObservableObject {
     
     /// Handle audio session resume after interruption
     private func handleSessionResume() {
-        LoggerService.shared.debug("AudioCoordinator: Handling audio session resume")
+        logger.d("AudioCoordinator: Handling audio session resume")
         
         // Resume listening if it was active before interruption
         if wasListeningBeforeInterruption && isListeningEnabled {

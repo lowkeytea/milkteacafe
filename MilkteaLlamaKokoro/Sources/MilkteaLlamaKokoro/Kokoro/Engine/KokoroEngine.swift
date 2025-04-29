@@ -30,7 +30,7 @@ public class KokoroEngine {
     private let generator: AudioGenerator
     private let audioPlayer: AudioPlayer
     private let logger: KokoroLogger
-    static let sharedInstance = KokoroEngine()
+    public static let sharedInstance = KokoroEngine()
     
     /// Current playback state
     private var _playbackState: PlaybackState = .idle

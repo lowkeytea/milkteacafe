@@ -29,9 +29,9 @@ final class ModelManager: ObservableObject {
 
     @Published var modelInfos: [ModelInfo] = []
     @Published var selectedModelId: String?
+    @Published var selectedThinkingModelId: String?
 
     private let modelsDirectory: URL
-    private var llamaModels: [String: LlamaModel] = [:]
 
     private init() {
         // Determine models storage directory
@@ -151,54 +151,6 @@ final class ModelManager: ObservableObject {
         info.downloadState = .notDownloaded
         info.loadState = .unloaded
         modelInfos[idx] = info
-        // Also unload if currently loaded
-        unload(descriptor)
-    }
-
-    func load(_ descriptor: ModelDescriptor) {
-        guard let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) else { return }
-        guard modelInfos[idx].downloadState == .downloaded else { return }
-
-        var info = modelInfos[idx]
-        info.loadState = .loading
-        modelInfos[idx] = info
-
-        let path = localURL(for: descriptor).path
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            let llama = LlamaModel(id: descriptor.id, path: path)
-            let success = llama.loadModel(modelPath: path)
-            Task { @MainActor in
-                if success {
-                    var updatedInfo = self.modelInfos[idx]
-                    updatedInfo.loadState = .loaded
-                    self.modelInfos[idx] = updatedInfo
-                    self.llamaModels[descriptor.id] = llama
-                } else {
-                    var updatedInfo = self.modelInfos[idx]
-                    updatedInfo.loadState = .error("Failed to load model")
-                    self.modelInfos[idx] = updatedInfo
-                }
-            }
-        }
-    }
-
-    func unload(_ descriptor: ModelDescriptor) {
-        guard let llama = llamaModels[descriptor.id],
-              let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) else { return }
-        var info = modelInfos[idx]
-        info.loadState = .unloaded
-        modelInfos[idx] = info
-
-        Task {
-            await llama.cleanup()
-            Task { @MainActor in
-                var updatedInfo = self.modelInfos[idx]
-                updatedInfo.loadState = .unloaded
-                self.modelInfos[idx] = updatedInfo
-                self.llamaModels.removeValue(forKey: descriptor.id)
-            }
-        }
     }
 
     func isDownloaded(_ descriptor: ModelDescriptor) -> Bool {
@@ -211,7 +163,75 @@ final class ModelManager: ObservableObject {
         return modelInfos[idx].loadState == .loaded
     }
 
-    func llamaModel(for descriptor: ModelDescriptor) -> LlamaModel? {
-        return llamaModels[descriptor.id]
+    /// Selects and loads the given descriptor into the 'chat' slot via LlamaBridge.
+    func loadAsChat(_ descriptor: ModelDescriptor) {
+        selectedModelId = descriptor.id
+        if let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
+            var info = modelInfos[idx]
+            info.loadState = .loading
+            modelInfos[idx] = info
+        }
+        let path = localURL(for: descriptor).path
+        Task.detached(priority: .userInitiated) {
+            let model = await LlamaBridge.shared.getModel(id: "chat", path: path)
+            let success = model.loadModel(modelPath: path)
+            await MainActor.run {
+                if let idx = self.modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
+                    var info = self.modelInfos[idx]
+                    info.loadState = success ? .loaded : .error("Failed to load model")
+                    self.modelInfos[idx] = info
+                }
+            }
+        }
+    }
+
+    /// Selects and loads the given descriptor into the 'thinking' slot via LlamaBridge.
+    func loadAsThinking(_ descriptor: ModelDescriptor) {
+        selectedThinkingModelId = descriptor.id
+        if let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
+            var info = modelInfos[idx]
+            info.loadState = .loading
+            modelInfos[idx] = info
+        }
+        let path = localURL(for: descriptor).path
+        Task.detached(priority: .userInitiated) {
+            let model = await LlamaBridge.shared.getModel(id: "thinking", path: path)
+            let success = model.loadModel(modelPath: path)
+            await MainActor.run {
+                if let idx = self.modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
+                    var info = self.modelInfos[idx]
+                    info.loadState = success ? .loaded : .error("Failed to load model")
+                    self.modelInfos[idx] = info
+                }
+            }
+        }
+    }
+
+    /// Unload the 'chat' or 'thinking' slot if this descriptor was loaded there.
+    func unload(_ descriptor: ModelDescriptor) {
+        // Unload chat slot if this descriptor was the selected chat model
+        if selectedModelId == descriptor.id {
+            selectedModelId = nil
+            if let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
+                var info = modelInfos[idx]
+                info.loadState = .unloaded
+                modelInfos[idx] = info
+            }
+            Task {
+                await LlamaBridge.shared.unloadModel(id: "chat")
+            }
+        }
+        // Unload thinking slot if this descriptor was the selected thinking model
+        if selectedThinkingModelId == descriptor.id {
+            selectedThinkingModelId = nil
+            if let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
+                var info = modelInfos[idx]
+                info.loadState = .unloaded
+                modelInfos[idx] = info
+            }
+            Task {
+                await LlamaBridge.shared.unloadModel(id: "thinking")
+            }
+        }
     }
 } 

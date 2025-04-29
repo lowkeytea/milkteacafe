@@ -273,9 +273,13 @@ class SpeechRecognizer {
         }
         
         group.enter()
-        AVAudioApplication.requestRecordPermission { granted in
-            audioGranted = granted
-            group.leave()
+        if #available(iOS 17.0, *) {
+            AVAudioApplication.requestRecordPermission { granted in
+                audioGranted = granted
+                group.leave()
+            }
+        } else {
+            // Fallback on earlier versions
         }
         
         group.notify(queue: .main) {

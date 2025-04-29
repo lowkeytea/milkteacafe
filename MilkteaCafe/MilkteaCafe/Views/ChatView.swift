@@ -1,7 +1,9 @@
 import SwiftUI
+import MilkteaLlamaKokoro
 
+@MainActor
 struct ChatView: View {
-    @StateObject private var viewModel = ChatViewModel()
+    @ObservedObject var viewModel = ChatViewModel()
 
     // State controlling stop button rotation
     @State private var isRotating = false
@@ -21,7 +23,7 @@ struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(viewModel.messages) { msg in
+                        ForEach(viewModel.viewableMessages) { msg in
                             HStack {
                                 if msg.role == .assistant {
                                     Text(msg.content)
@@ -43,8 +45,8 @@ struct ChatView: View {
                     }
                     .padding()
                 }
-                .onChange(of: viewModel.messages.count) { _ in
-                    if let last = viewModel.messages.last {
+                .onChange(of: viewModel.viewableMessages.count) { _ in
+                    if let last = viewModel.viewableMessages.last {
                         withAnimation {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }
@@ -64,7 +66,7 @@ struct ChatView: View {
                     .frame(minHeight: 30)
                     .onSubmit {
                         Task {
-                            if viewModel.isGenerating || viewModel.isPlaying {
+                            if viewModel.isGenerating || viewModel.isPlaying || KokoroEngine.sharedInstance.playbackState == .playing {
                                 await viewModel.cancelGeneration()
                             } else {
                                 await viewModel.send()
@@ -91,8 +93,7 @@ struct ChatView: View {
             .padding()
             .background(Color(UIColor.secondarySystemBackground))
         }
-        .navigationTitle("Chat")
-        
+        // navigationTitle removed to be handled by container view
     }
 }
 

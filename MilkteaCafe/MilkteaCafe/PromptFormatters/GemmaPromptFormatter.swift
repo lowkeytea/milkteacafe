@@ -108,7 +108,7 @@ class GemmaPromptFormatter: PromptFormatter {
             return GemmaPromptFormatter.USER
         case .assistant:
             return GemmaPromptFormatter.ASSISTANT
-        case .system, .context:
+        case .system:
             return GemmaPromptFormatter.USER
         }
     }

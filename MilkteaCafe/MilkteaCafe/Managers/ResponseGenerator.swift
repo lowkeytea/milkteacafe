@@ -38,6 +38,19 @@ struct SentenceFilter: TokenFilter {
     }
 }
 
+/// A filter that buffers all tokens and emits the full response only at the end
+struct FullResponseFilter: TokenFilter {
+    private var buffer: String = ""
+    mutating func process(token: String) -> [String] {
+        buffer += token
+        return []
+    }
+    mutating func flush() -> [String] {
+        defer { buffer = "" }
+        return [buffer]
+    }
+}
+
 /// Actor responsible for formatting prompts and streaming tokens from a LlamaModel
 actor ResponseGenerator {
     static let shared = ResponseGenerator()
@@ -51,8 +64,9 @@ actor ResponseGenerator {
     /// - Returns: an AsyncStream of String units (tokens or sentences)
     func generate(
         llama: LlamaModel,
-        history: [ChatMessage],
-        newUserMessage: ChatMessage,
+        history: [Message],
+        systemPrompt: String,
+        newUserMessage: Message,
         filter: TokenFilter = PassThroughFilter()
     ) -> AsyncStream<String> {
         let formatter = GemmaPromptFormatter()
@@ -68,10 +82,10 @@ actor ResponseGenerator {
                 promptMessages.append(newMsg)
 
                 // Initialize or append to context
-                if history.isEmpty {
+                if llama.n_cur == 0 {
                     // Prepend system instruction for the very first turn
                     promptMessages.insert(
-                        Message(role: .system, content: "You are a sarcastic AI built entirely to entertain."),
+                        Message(role: .system, content: systemPrompt),
                         at: 0
                     )
                     // Format the full prompt for initialization
@@ -79,11 +93,9 @@ actor ResponseGenerator {
                         messages: promptMessages,
                         systemPrompt: nil
                     )
-                    #if DEBUG
                     LoggerService.shared.info(
                         "ResponsesetGenerator fullPrompt: '\(fullPrompt)' (length \(fullPrompt.count))"
                     )
-                    #endif
                     llama.setCancelled(false)
                     let success = await llama.completionInit(fullPrompt)
                     guard success else {
@@ -96,11 +108,9 @@ actor ResponseGenerator {
                         messages: [newMsg],
                         systemPrompt: nil
                     )
-                    #if DEBUG
                     LoggerService.shared.info(
                         "ResponseGenerator formattedUserMessage: '\(formattedUser)' (length \(formattedUser.count))"
                     )
-                    #endif
                     llama.appendUserMessage(userMessage: formattedUser)
                 }
 
@@ -112,16 +122,16 @@ actor ResponseGenerator {
                         maxTokens: LlamaConfig.shared.maxTokens,
                         currentToken: &currentToken
                     ) {
-                    LoggerService.shared.debug("ResponseGenerator raw token: '\(token)' (\(token.count) chars)")
                     for unit in f.process(token: token) {
-                        LoggerService.shared.debug("ResponseGenerator unit: '\(unit)' (\(unit.count) chars)")
                         continuation.yield(unit)
                     }
                 }
 
                 // Flush any remaining buffer units
                 for unit in f.flush() {
+                    #if DEBUG
                     LoggerService.shared.debug("ResponseGenerator flush unit: '\(unit)' (\(unit.count) chars)")
+                    #endif
                     continuation.yield(unit)
                 }
                 continuation.finish()

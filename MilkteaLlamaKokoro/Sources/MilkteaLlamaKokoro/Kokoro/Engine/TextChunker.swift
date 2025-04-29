@@ -38,7 +38,7 @@ public struct TextChunker {
     ]
     
     /// Creates a TextChunker with constraints and an optional logger.
-    public init(minChunkLength: Int = 25, maxChunkLength: Int = 250, logger: KokoroLogger = KokoroLogger.create(for: TextChunker.self)) {
+    public init(minChunkLength: Int = 50, maxChunkLength: Int = 250, logger: KokoroLogger = KokoroLogger.create(for: TextChunker.self)) {
         self.minChunkLength = minChunkLength
         self.maxChunkLength = maxChunkLength
         self.logger = logger

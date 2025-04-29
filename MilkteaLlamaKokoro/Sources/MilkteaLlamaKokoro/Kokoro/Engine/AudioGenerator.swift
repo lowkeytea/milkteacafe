@@ -13,7 +13,7 @@ public class AudioGenerator {
     private let logger: KokoroLogger
     private var tts: SherpaOnnxOfflineTtsWrapper?
     private let resourceProvider = ResourceProvider()
-    private var currentVoice: VoiceConfig = .afHeart
+    private var currentVoice: VoiceConfig = .afBella
     private lazy var jobProcessor: FifoJobProcessor<SentenceRequest, Void> = { [unowned self] in
         FifoJobProcessor(
             jobToRun: { [weak self] request in
@@ -128,7 +128,7 @@ public class AudioGenerator {
         }
         
         // Create chunks using TextChunker
-        let chunker = TextChunker(minChunkLength: 15, maxChunkLength: 80)
+        let chunker = TextChunker(minChunkLength: 80, maxChunkLength: 250)
         let chunks = chunker.chunk(trimmed)
         
         // Create sentence request

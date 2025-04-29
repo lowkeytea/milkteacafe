@@ -4,17 +4,17 @@ class LlamaConfig: ObservableObject {
     static let shared = LlamaConfig()
     
     private struct Defaults {
-        static let contextSize = Self.determineModelContext() ? 2560 : canUseGPU() ? 2048 : 1536
+        static let contextSize = Self.determineModelContext() ? 8192 : canUseGPU() ? 8192 : 8192
         static let batchSize = 256
         static let temperature: Float = 1.0
         static let topP: Float = 0.98
         static let minP: Float = 0.02
         static let dryMultiplier: Float = 0.7
         static let dryBase: Float = 1.50
-        static let maxTokens = 256
+        static let maxTokens = 1024
         static let flashAttention = true
         static let loraScale: Float = 0.7
-        static let historyMessageCount = Self.determineModelContext() ? 5 : canUseGPU() ? 4 : 3
+        static let historyMessageCount = 12
         static let maxParagraphs = 3
         static let minParagraphLength = 100
         static let useMetalGPU = Self.canUseGPU()

@@ -1,0 +1,24 @@
+{
+  "originHash" : "b6e3e5a1c194cb6e63dbb8d2811b09ff859d4873736f2c310c05380d493378ff",
+  "pins" : [
+    {
+      "identity" : "objectbox-swift-spm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/objectbox/objectbox-swift-spm",
+      "state" : {
+        "revision" : "01fdb75f9c6da0c2a378598ef0c4bac6e777f3c1",
+        "version" : "4.1.0-beta.2"
+      }
+    },
+    {
+      "identity" : "swiftsoup",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/scinfu/SwiftSoup",
+      "state" : {
+        "revision" : "bba848db50462894e7fc0891d018dfecad4ef11e",
+        "version" : "2.8.7"
+      }
+    }
+  ],
+  "version" : 3
+}
