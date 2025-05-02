@@ -25,6 +25,9 @@ class LlamaModel {
     /// Llama model pointer
     private var model: OpaquePointer?
     
+    /// Shared model weights
+    private var sharedWeights: LlamaWeights?
+    
     /// Llama context pointer
     private var context: OpaquePointer?
     
@@ -190,35 +193,41 @@ class LlamaModel {
     }
     
     /// Load a model from the specified path
-    func loadModel(modelPath: String, formatter: PromptFormatter? = nil) -> Bool {
+    func loadModel(modelPath: String, formatter: PromptFormatter? = nil) async -> Bool {
         // Set cancellation flag
         setCancelled(false)
         
         // Update state
         updateState(.loading)
         
-        // Use the operation queue to ensure thread safety
         if let formatter = formatter {
             self.promptFormatter = formatter
         }
         
-        if (model != nil) {
+        if isLoaded() {
             cleanupInternal()
         }
         
-        if loadModelInternal(modelPath: modelPath) {
-            createContext(model: model!, path: currentModelPath!)
+        do {
+            // Get or create shared weights (using await because it's actor-isolated)
+            sharedWeights = try await LlamaBridge.shared.getOrCreateWeights(for: modelPath)
+            
+            // Use the model and vocab from shared weights
+            model = sharedWeights?.model
+            vocab = sharedWeights?.vocab
+            
+            // Create our own context with the shared model
+            createContext(model: model!, path: modelPath)
             updateSampler()
             
-            // Get vocab after model is loaded
-            vocab = llama_model_get_vocab(model)
-            
+            currentModelPath = modelPath
             updateState(.loaded)
             return true
+        } catch {
+            LoggerService.shared.error("Failed to load shared model: \(error.localizedDescription)")
+            updateState(.error(error))
+            return false
         }
-        
-        updateState(.error(LlamaError.modelNotLoaded))
-        return false
     }
     
     /// Initialize completion with the given text
@@ -443,15 +452,20 @@ class LlamaModel {
             self.context = nil
         }
         
-        // Free model after context
-        if self.model != nil {
-            LoggerService.shared.debug("Freeing model...")
-            llama_model_free(self.model)
-            self.model = nil
+        // Release shared weights instead of freeing model directly
+        if let weights = self.sharedWeights {
+            LoggerService.shared.debug("Releasing shared weights...")
+            Task {
+                await LlamaBridge.shared.releaseWeights(weights)
+            }
+            self.sharedWeights = nil
         }
         
-        // Reset other state
+        // Set references to nil without freeing
+        self.model = nil
         self.vocab = nil
+        
+        // Reset other state
         self.shouldLoadLora = true
         self.restarted = true
         
@@ -478,24 +492,6 @@ class LlamaModel {
     
     // MARK: - Private Model Management Methods
     
-    /// Load a model file
-    private func loadModelInternal(modelPath: String) -> Bool {
-        var params = llama_model_default_params()
-        if LlamaConfig.shared.useMetalGPU {
-            params.n_gpu_layers = 40
-        } else {
-            params.n_gpu_layers = 0  // Don't use GPU
-        }
-        
-        guard let newModel = llama_model_load_from_file(modelPath, params) else {
-            return false
-        }
-        
-        currentModelPath = modelPath
-        model = newModel
-        return true
-    }
-    
     /// Create a context from a loaded model
     private func createContext(model: OpaquePointer, path: String) {
         setCancelled(false)
@@ -506,6 +502,7 @@ class LlamaModel {
         params.n_threads_batch = params.n_threads
         params.flash_attn = false
         
+        // Use llama_new_context_with_model for shared model approach
         guard let newContext = llama_init_from_model(model, params) else {
             LoggerService.shared.warning("Could not load context!")
             return

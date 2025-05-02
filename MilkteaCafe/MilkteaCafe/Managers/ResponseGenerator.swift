@@ -84,8 +84,22 @@ actor ResponseGenerator {
                 // Initialize or append to context
                 if llama.n_cur == 0 {
                     // Prepend system instruction for the very first turn
+                    let userName: String? = NameAction.shared.getUserName()
+                    let assistantName: String? = NameAction.shared.getAssistantName()
+                    let userNamePrompt: String
+                    let assistantNamePrompt: String
+                    if (userName != nil) {
+                        userNamePrompt = "\n\nThe user's name is \(userName!)."
+                    } else {
+                        userNamePrompt = ""
+                    }
+                    if (assistantName != nil) {
+                        assistantNamePrompt = "\n\nThe assistant's name is \(assistantName!)."
+                    } else {
+                        assistantNamePrompt = ""
+                    }
                     promptMessages.insert(
-                        Message(role: .system, content: systemPrompt),
+                        Message(role: .system, content: "\(systemPrompt) \(userNamePrompt) \(assistantNamePrompt)"),
                         at: 0
                     )
                     // Format the full prompt for initialization
@@ -94,7 +108,7 @@ actor ResponseGenerator {
                         systemPrompt: nil
                     )
                     LoggerService.shared.info(
-                        "ResponsesetGenerator fullPrompt: '\(fullPrompt)' (length \(fullPrompt.count))"
+                        "ResponseGenerator fullPrompt: '\(fullPrompt)' (length \(fullPrompt.count))"
                     )
                     llama.setCancelled(false)
                     let success = await llama.completionInit(fullPrompt)

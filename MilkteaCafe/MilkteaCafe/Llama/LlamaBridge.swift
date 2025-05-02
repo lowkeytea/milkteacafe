@@ -7,6 +7,10 @@ typealias LlamaLoraAdapter = OpaquePointer
 /// LlamaBridge is a registry that manages multiple LlamaModel instances
 /// It maintains backward compatibility by delegating operations to a default model
 actor LlamaBridge {
+    // MARK: - Shared Weights Management
+    
+    /// Registry of all loaded model weights
+    private var weightsByPath: [String: LlamaWeights] = [:]
     // MARK: - Singleton
     
     static let shared = LlamaBridge()
@@ -129,15 +133,15 @@ actor LlamaBridge {
     ///   - modelPath: Path to the model file
     ///   - formatter: Optional prompt formatter
     /// - Returns: True if the model was loaded successfully
-    func loadModel(modelPath: String, formatter: PromptFormatter? = nil) -> Bool {
+    func loadModel(modelPath: String, formatter: PromptFormatter? = nil) async -> Bool {
         // Generate a model ID from the path
         let modelId = URL(fileURLWithPath: modelPath).lastPathComponent
         
         // Get or create the model
         let model = getModel(id: modelId, path: modelPath)
         
-        // Load it
-        let success = model.loadModel(modelPath: modelPath, formatter: formatter)
+        // Load it (using await now)
+        let success = await model.loadModel(modelPath: modelPath, formatter: formatter)
         
         // Set as default if successful
         if success {
@@ -218,9 +222,77 @@ actor LlamaBridge {
     }
     
     deinit {
+        // Clean up shared weights first
+        cleanupAllWeights()
+        
         // Clean up the llama backend
         llama_backend_free()
         LoggerService.shared.info("LlamaBridge deallocated with backend cleanup")
+    }
+    
+    // MARK: - Shared Weights Methods
+    
+    /// Get or create weights for a model path
+    /// - Parameter path: Path to the model file
+    /// - Returns: A shared weights instance
+    func getOrCreateWeights(for path: String) throws -> LlamaWeights {
+        // Check if we already have weights for this path
+        if let existingWeights = weightsByPath[path] {
+            LoggerService.shared.debug("Using existing weights for \(path)")
+            existingWeights.retain()
+            return existingWeights
+        }
+        
+        // Create new weights
+        let id = URL(fileURLWithPath: path).lastPathComponent
+        let newWeights = try LlamaWeights(id: id, path: path)
+        newWeights.retain() // Initial retain
+        weightsByPath[path] = newWeights
+        LoggerService.shared.info("Created new weights for \(path) with id \(id)")
+        
+        return newWeights
+    }
+    
+    /// Release weights for a path
+    /// - Parameter weights: The weights to release
+    func releaseWeights(_ weights: LlamaWeights) {
+        weights.release()
+        // If reference count reaches zero, it will be cleaned up in LlamaWeights.release()
+        // We can remove from our registry
+        for (path, w) in weightsByPath where w.id == weights.id {
+            if w.refCount <= 0 {
+                weightsByPath.removeValue(forKey: path)
+                break
+            }
+        }
+    }
+    
+    /// Clean up all weights
+    func cleanupAllWeights() {
+        for (_, weights) in weightsByPath {
+            LoggerService.shared.debug("Releasing all references to weights \(weights.id)")
+            weights.release()
+        }
+        weightsByPath.removeAll()
+    }
+    
+    /// Get stats about shared model usage
+    /// - Returns: Tuple containing count of shared models, total memory savings
+    func getSharedModelStats() -> (count: Int, memorySavings: String) {
+        // Get unique model paths being shared
+        let uniquePaths = Set(weightsByPath.keys)
+        
+        // Get count of models using shared weights
+        let totalModelsUsingSharedWeights = models.values.count
+        
+        // Each shared model saves approximately its file size in memory
+        // For a rough estimate, assume each model is about 4GB
+        let savedMemoryGB = max(0, (totalModelsUsingSharedWeights - uniquePaths.count) * 4)
+        
+        return (
+            count: totalModelsUsingSharedWeights,
+            memorySavings: savedMemoryGB > 0 ? "~\(savedMemoryGB) GB" : "0 GB"
+        )
     }
 }
 

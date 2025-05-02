@@ -23,6 +23,7 @@ struct PromptEditorView: View {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Save") {
                             text = draftText
+                            SystemPromptManager.shared.updateSystemPrompt(text)
                             dismiss()
                         }
                     }

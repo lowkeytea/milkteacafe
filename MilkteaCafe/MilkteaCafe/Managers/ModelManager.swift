@@ -174,7 +174,7 @@ final class ModelManager: ObservableObject {
         let path = localURL(for: descriptor).path
         Task.detached(priority: .userInitiated) {
             let model = await LlamaBridge.shared.getModel(id: "chat", path: path)
-            let success = model.loadModel(modelPath: path)
+            let success = await model.loadModel(modelPath: path)
             await MainActor.run {
                 if let idx = self.modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
                     var info = self.modelInfos[idx]
@@ -196,7 +196,7 @@ final class ModelManager: ObservableObject {
         let path = localURL(for: descriptor).path
         Task.detached(priority: .userInitiated) {
             let model = await LlamaBridge.shared.getModel(id: "thinking", path: path)
-            let success = model.loadModel(modelPath: path)
+            let success = await model.loadModel(modelPath: path)
             await MainActor.run {
                 if let idx = self.modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
                     var info = self.modelInfos[idx]

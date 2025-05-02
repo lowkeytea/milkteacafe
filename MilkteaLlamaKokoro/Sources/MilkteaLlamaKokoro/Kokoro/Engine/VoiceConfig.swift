@@ -119,17 +119,8 @@ public extension VoiceConfig {
 
     /// A human‐friendly display name for UI, with special agent overrides.
     var displayName: String {
-        switch self {
-        case .afBella:      return "Annarky"
-        case .afHeart:      return "M1lkt3a"
-        case .bmGeorge:     return "Generic"
-        case .amMichael:    return "Artist"
-        case .bmFable:      return "Monster"
-        default:
-            // Drop the language/gender prefix and capitalize
-            let part = voiceName.split(separator: "_").last.map(String.init) ?? voiceName
-            return part.capitalized
-        }
+        let part = voiceName.split(separator: "_").last.map(String.init) ?? voiceName
+        return part.capitalized
     }
 
     /// Determine which lexicon file to use based on voice ID.
