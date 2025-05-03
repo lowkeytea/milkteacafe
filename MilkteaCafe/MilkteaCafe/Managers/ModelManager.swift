@@ -13,6 +13,7 @@ enum LoadState: Equatable {
     case unloaded
     case loading
     case loaded
+    case contextUnloaded  // New state: model weights loaded but context unloaded
     case error(String)
 }
 
@@ -21,6 +22,8 @@ struct ModelInfo: Identifiable, Equatable {
     let descriptor: ModelDescriptor
     var downloadState: DownloadState = .notDownloaded
     var loadState: LoadState = .unloaded
+    var contextState: LoadState = .unloaded // Tracks context loading state separately
+    var weightsState: LoadState = .unloaded // Tracks weights loading state separately
 }
 
 @MainActor
@@ -32,7 +35,15 @@ final class ModelManager: ObservableObject {
     @Published var selectedThinkingModelId: String?
 
     private let modelsDirectory: URL
-
+    let gemmaModel = ModelDescriptor(
+        id: "google_gemma_3_4b",
+        displayName: "Gemma 3 4B",
+        url: URL(string: "https://huggingface.co/bartowski/google_gemma-3-4b-it-qat-GGUF/resolve/main/google_gemma-3-4b-it-qat-IQ3_XS.gguf")!,
+        fileName: "google_gemma-3-4b-it-qat-IQ3_XS.gguf",
+        defaultDownloadSize: 2_370_000_000,
+        memoryRequirement: "8GB RAM"
+    )
+    
     private init() {
         // Determine models storage directory
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -40,36 +51,28 @@ final class ModelManager: ObservableObject {
         self.modelsDirectory = dir
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
-        // Define available models
+        // Define available models - only supporting Gemma 3 4B
         let descriptors: [ModelDescriptor] = [
             ModelDescriptor(
                 id: "google_gemma_3_4b",
                 displayName: "Gemma 3 4B",
-                url: URL(string: "https://huggingface.co/bartowski/google_gemma-3-4b-it-qat-GGUF/resolve/main/google_gemma-3-4b-it-qat-Q4_0.gguf")!,
-                fileName: "google_gemma-3-4b-it-qat-Q4_0.gguf",
+                url: URL(string: "https://huggingface.co/bartowski/google_gemma-3-4b-it-qat-GGUF/resolve/main/google_gemma-3-4b-it-qat-IQ3_XS.gguf")!,
+                fileName: "google_gemma-3-4b-it-qat-IQ3_XS.gguf",
                 defaultDownloadSize: 2_370_000_000,
                 memoryRequirement: "8GB RAM"
-            ),
-            ModelDescriptor(
-                id: "google_gemma_3_1b",
-                displayName: "Gemma 3 1B",
-                url: URL(string: "https://huggingface.co/bartowski/google_gemma-3-1b-it-qat-GGUF/resolve/main/google_gemma-3-1b-it-qat-Q4_0.gguf")!,
-                fileName: "google_gemma-3-1b-it-qat-Q4_0.gguf",
-                defaultDownloadSize: 722_000_000,
-                memoryRequirement: "4GB RAM"
-            ),
-            ModelDescriptor(
-                id: "google_gemma_3_12b",
-                displayName: "Gemma 3 12B",
-                url: URL(string: "https://huggingface.co/bartowski/google_gemma-3-12b-it-qat-GGUF/resolve/main/google_gemma-3-12b-it-qat-Q4_0.gguf")!,
-                fileName: "google_gemma-3-12b-it-qat-Q4_0.gguf",
-                defaultDownloadSize: 6_910_000_000,
-                memoryRequirement: "12GB RAM"
             )
         ]
 
-        self.modelInfos = descriptors.map { ModelInfo(id: $0.id, descriptor: $0) }
+        self.modelInfos = descriptors.map { 
+            ModelInfo(
+                id: $0.id, 
+                descriptor: $0, 
+                contextState: .unloaded, 
+                weightsState: .unloaded
+            ) 
+        }
         self.selectedModelId = descriptors.first?.id
+        self.selectedThinkingModelId = descriptors.first?.id
 
         // Check which models are already downloaded
         checkDownloadedStatus()
@@ -150,6 +153,8 @@ final class ModelManager: ObservableObject {
         var info = modelInfos[idx]
         info.downloadState = .notDownloaded
         info.loadState = .unloaded
+        info.contextState = .unloaded
+        info.weightsState = .unloaded
         modelInfos[idx] = info
     }
 
@@ -160,25 +165,76 @@ final class ModelManager: ObservableObject {
 
     func isLoaded(_ descriptor: ModelDescriptor) -> Bool {
         guard let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) else { return false }
-        return modelInfos[idx].loadState == .loaded
+        return modelInfos[idx].loadState == .loaded || modelInfos[idx].weightsState == .loaded
+    }
+    
+    func isModelLoaded(_ modelId: String) -> Bool {
+        // First check our infos record based on loadState
+        if let idx = modelInfos.firstIndex(where: { $0.id == modelId }),
+           modelInfos[idx].weightsState == .loaded {
+            return true
+        }
+        
+        // Check with LlamaBridge to see if this model actually has weights loaded
+        // We do this asynchronously but don't wait for the result - this is just for state synchronization
+        Task {
+            if let descriptor = modelInfos.first(where: { $0.id == modelId })?.descriptor,
+               await LlamaBridge.shared.getLoadedWeightIds().contains(modelId) {
+                // If bridge confirms weights are loaded, sync our state
+                await MainActor.run {
+                    if let idx = self.modelInfos.firstIndex(where: { $0.id == modelId }) {
+                        var info = self.modelInfos[idx]
+                        info.weightsState = .loaded
+                        // Update combined loadState for backward compatibility
+                        info.loadState = info.contextState == .loaded ? .loaded : .contextUnloaded
+                        self.modelInfos[idx] = info
+                        LoggerService.shared.debug("ModelManager: Synced model state for \(modelId) - weights are loaded")
+                    }
+                }
+            }
+        }
+        
+        // Final check - if it's downloaded, it's potentially usable
+        return modelInfos.contains { $0.id == modelId && $0.downloadState == .downloaded }
     }
 
     /// Selects and loads the given descriptor into the 'chat' slot via LlamaBridge.
-    func loadAsChat(_ descriptor: ModelDescriptor) {
+    func loadContextAsChat(_ descriptor: ModelDescriptor) async {
+        if (await isContextLoaded(id: "chat")) {
+            return
+        }
         selectedModelId = descriptor.id
         if let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
             var info = modelInfos[idx]
             info.loadState = .loading
+            info.contextState = .loading
             modelInfos[idx] = info
         }
         let path = localURL(for: descriptor).path
-        Task.detached(priority: .userInitiated) {
-            let model = await LlamaBridge.shared.getModel(id: "chat", path: path)
-            let success = await model.loadModel(modelPath: path)
+        do {
+            // First ensure weights are loaded
+            _ = try await LlamaBridge.shared.loadModelWeights(modelPath: path, weightId: descriptor.id)
+            
+            // Then load the context
+            let context = await LlamaBridge.shared.getContext(id: "chat", path: path)
+            let success = await context.loadModel(modelPath: path)
+            
             await MainActor.run {
                 if let idx = self.modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
                     var info = self.modelInfos[idx]
-                    info.loadState = success ? .loaded : .error("Failed to load model")
+                    info.contextState = success ? .loaded : .error("Failed to load context")
+                    info.weightsState = .loaded
+                    info.loadState = success ? .loaded : .contextUnloaded
+                    self.modelInfos[idx] = info
+                }
+            }
+        } catch {
+            await MainActor.run {
+                if let idx = self.modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
+                    var info = self.modelInfos[idx]
+                    info.contextState = .error(error.localizedDescription)
+                    info.weightsState = .error(error.localizedDescription)
+                    info.loadState = .error(error.localizedDescription)
                     self.modelInfos[idx] = info
                 }
             }
@@ -186,52 +242,264 @@ final class ModelManager: ObservableObject {
     }
 
     /// Selects and loads the given descriptor into the 'thinking' slot via LlamaBridge.
-    func loadAsThinking(_ descriptor: ModelDescriptor) {
+    func loadContextAsThinking(_ descriptor: ModelDescriptor) async {
+        if (await isContextLoaded(id: "thinking")) {
+            return
+        }
         selectedThinkingModelId = descriptor.id
         if let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
             var info = modelInfos[idx]
             info.loadState = .loading
+            info.contextState = .loading
             modelInfos[idx] = info
         }
         let path = localURL(for: descriptor).path
         Task.detached(priority: .userInitiated) {
-            let model = await LlamaBridge.shared.getModel(id: "thinking", path: path)
-            let success = await model.loadModel(modelPath: path)
-            await MainActor.run {
-                if let idx = self.modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
-                    var info = self.modelInfos[idx]
-                    info.loadState = success ? .loaded : .error("Failed to load model")
-                    self.modelInfos[idx] = info
+            do {
+                // First ensure weights are loaded
+                _ = try await LlamaBridge.shared.loadModelWeights(modelPath: path, weightId: descriptor.id)
+                
+                // Then load the context
+                let context = await LlamaBridge.shared.getContext(id: "thinking", path: path)
+                let success = await context.loadModel(modelPath: path)
+                
+                await MainActor.run {
+                    if let idx = self.modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
+                        var info = self.modelInfos[idx]
+                        info.contextState = success ? .loaded : .error("Failed to load context")
+                        info.weightsState = .loaded
+                        info.loadState = success ? .loaded : .contextUnloaded
+                        self.modelInfos[idx] = info
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    if let idx = self.modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
+                        var info = self.modelInfos[idx]
+                        info.contextState = .error(error.localizedDescription)
+                        info.weightsState = .error(error.localizedDescription)
+                        info.loadState = .error(error.localizedDescription)
+                        self.modelInfos[idx] = info
+                    }
                 }
             }
         }
     }
 
-    /// Unload the 'chat' or 'thinking' slot if this descriptor was loaded there.
-    func unload(_ descriptor: ModelDescriptor) {
-        // Unload chat slot if this descriptor was the selected chat model
+    /// Unload the 'chat' or 'thinking' slot context if this descriptor was loaded there.
+    /// Preserves the model weights for reuse.
+    func unloadContext(_ descriptor: ModelDescriptor) {
+        // Unload chat context if this descriptor was the selected chat model
         if selectedModelId == descriptor.id {
-            selectedModelId = nil
             if let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
                 var info = modelInfos[idx]
-                info.loadState = .unloaded
+                info.contextState = .unloaded
+                info.loadState = .contextUnloaded // Mark as context unloaded but weights still loaded
                 modelInfos[idx] = info
             }
             Task {
-                await LlamaBridge.shared.unloadModel(id: "chat")
+                await LlamaBridge.shared.unloadContext(id: "chat")
             }
         }
-        // Unload thinking slot if this descriptor was the selected thinking model
+        
+        // Unload thinking context if this descriptor was the selected thinking model
         if selectedThinkingModelId == descriptor.id {
-            selectedThinkingModelId = nil
             if let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
                 var info = modelInfos[idx]
-                info.loadState = .unloaded
+                info.contextState = .unloaded
+                info.loadState = .contextUnloaded // Mark as context unloaded but weights still loaded
                 modelInfos[idx] = info
             }
             Task {
-                await LlamaBridge.shared.unloadModel(id: "thinking")
+                await LlamaBridge.shared.unloadContext(id: "thinking")
             }
+        }
+    }
+    
+    /// Completely unload both context and weights for a model
+    func unloadModelComplete(_ descriptor: ModelDescriptor) {
+        // First unload the contexts
+        unloadContext(descriptor)
+        
+        // Then unload the weights
+        if let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) {
+            var info = modelInfos[idx]
+            info.weightsState = .unloaded
+            info.loadState = .unloaded
+            modelInfos[idx] = info
+            
+            Task {
+                _ = await LlamaBridge.shared.unloadModelWeights(weightId: descriptor.id)
+            }
+        }
+        
+        // Clear selection if this was a selected model
+        if selectedModelId == descriptor.id {
+            selectedModelId = nil
+        }
+        if selectedThinkingModelId == descriptor.id {
+            selectedThinkingModelId = nil
+        }
+    }
+    
+    // MARK: - Dynamic Thinking Model Management
+    
+    /**
+     * Dynamic Thinking Model Loading System
+     *
+     * This system optimizes memory usage by only loading the thinking model context when needed
+     * and unloading it when idle, while preserving the model weights for quick reuse.
+     *
+     * Key components:
+     * - Reference counting: Tracks how many operations are using the thinking model
+     * - Acquisition: Loads model context when needed (creates new context if needed)
+     * - Release: Unloads model context when all operations complete (preserves weights)
+     * - Thread safety: All operations are MainActor protected with async/await
+     * - Error handling: Ensures proper cleanup even when operations fail
+     */
+    
+    /// Track number of active thinking operations
+    private(set) var thinkingModelOperationCount = 0
+    private var thinkingModelLoadTask: Task<Void, Never>?
+    
+    /// Check if thinking model context is currently in use
+    var isThinkingModelInUse: Bool {
+        return thinkingModelOperationCount > 0
+    }
+    
+    /// Increment reference counter and load thinking model context if needed
+    func acquireThinkingModel(modelId: String? = nil) async -> Bool {
+        let targetModelId = modelId ?? modelInfos.first(where: { $0.id == "google_gemma_3_4b" })?.id
+        guard let targetModelId = targetModelId,
+              let descriptor = modelInfos.first(where: { $0.id == targetModelId })?.descriptor else {
+            LoggerService.shared.error("Failed to acquire thinking model: no suitable model found")
+            return false
+        }
+        
+        // Increment counter
+        thinkingModelOperationCount += 1
+        LoggerService.shared.debug("Thinking model operation count: \(thinkingModelOperationCount)")
+        
+        // If already loaded with correct model (both weights and context), we're done
+        if selectedThinkingModelId == targetModelId, let idx = modelInfos.firstIndex(where: { $0.id == targetModelId }),
+           modelInfos[idx].contextState == .loaded {
+            LoggerService.shared.debug("Thinking model context already loaded: \(targetModelId)")
+            return true
+        }
+        
+        // If already loading, wait for completion
+        if let loadTask = thinkingModelLoadTask {
+            LoggerService.shared.debug("Waiting for existing thinking model load task")
+            _ = await loadTask.value
+            return await isContextLoaded(id: "thinking")
+        }
+        
+        // Check if we need to reload weights or just recreate context
+        let hasLoadedWeights = await LlamaBridge.shared.getLoadedWeightIds().contains(targetModelId)
+        
+        // Load the model
+        if !hasLoadedWeights {
+            LoggerService.shared.info("Loading thinking model weights and context from scratch: \(targetModelId)")
+            thinkingModelLoadTask = Task {
+                await loadContextAsThinking(descriptor)
+                self.thinkingModelLoadTask = nil
+            }
+        } else {
+            LoggerService.shared.info("Creating thinking model context using existing weights: \(targetModelId)")
+            thinkingModelLoadTask = Task {
+                let context = await LlamaBridge.shared.getContext(id: "thinking", path: localURL(for: descriptor).path)
+                let success = await context.loadModel(modelPath: localURL(for: descriptor).path)
+                await MainActor.run {
+                    if let idx = self.modelInfos.firstIndex(where: { $0.id == targetModelId }) {
+                        var info = self.modelInfos[idx]
+                        info.contextState = success ? .loaded : .error("Failed to create context")
+                        info.loadState = success ? .loaded : .contextUnloaded
+                        self.modelInfos[idx] = info
+                    }
+                    selectedThinkingModelId = targetModelId
+                }
+                self.thinkingModelLoadTask = nil
+            }
+        }
+        
+        // Wait for loading to complete
+        _ = await thinkingModelLoadTask?.value
+        return await isContextLoaded(id: "thinking")
+    }
+    
+    /// Helper to check if a specific context is loaded
+    private func isContextLoaded(id: String) async -> Bool {
+        return await LlamaBridge.shared.isContextLoaded(id: id)
+    }
+    
+    /// Decrement reference counter and unload thinking context if unused
+    func releaseThinkingModel() async {
+        guard thinkingModelOperationCount > 0 else { 
+            LoggerService.shared.warning("Attempted to release thinking model with count already at 0")
+            return 
+        }
+        
+        // Decrement counter
+        thinkingModelOperationCount -= 1
+        LoggerService.shared.debug("Thinking model operation count: \(thinkingModelOperationCount)")
+        
+        // If still in use, keep loaded
+        if thinkingModelOperationCount > 0 {
+            LoggerService.shared.debug("Thinking model still in use by \(thinkingModelOperationCount) operations")
+            return
+        }
+        
+        // Unload context if no longer in use
+        if let modelId = selectedThinkingModelId {
+            LoggerService.shared.info("Unloading thinking model context: \(modelId)")
+            await unloadThinkingModelContext()
+        }
+    }
+    
+    /// Unload only the thinking model context while preserving weights
+    func unloadThinkingModelContext() async {
+        if let modelId = selectedThinkingModelId {
+            // Update model info state to reflect context unloaded but weights preserved
+            if let idx = modelInfos.firstIndex(where: { $0.id == modelId }) {
+                var info = modelInfos[idx]
+                info.contextState = .unloaded
+                info.loadState = .contextUnloaded
+                modelInfos[idx] = info
+            }
+            
+            // Don't clear the selectedThinkingModelId - this helps the ModelManager
+            // understand that the model weights are still loaded
+            
+            // Special handling to only unload the context but keep the weights
+            await LlamaBridge.shared.unloadContext(id: "thinking")
+            
+            LoggerService.shared.info("Thinking model context unloaded, but keeping weights loaded and tracked")
+        }
+    }
+    
+    /// Completely unload thinking model, including weights
+    func unloadThinkingModelWeights() async {
+        if let modelId = selectedThinkingModelId,
+           let descriptor = modelInfos.first(where: { $0.id == modelId })?.descriptor {
+            
+            // First ensure context is unloaded
+            await unloadThinkingModelContext()
+            
+            // Then unload weights
+            if let idx = modelInfos.firstIndex(where: { $0.id == modelId }) {
+                var info = modelInfos[idx]
+                info.weightsState = .unloaded
+                info.loadState = .unloaded
+                modelInfos[idx] = info
+            }
+            
+            // Now unload the weights
+            _ = await LlamaBridge.shared.unloadModelWeights(weightId: modelId)
+            
+            // Clear the selection
+            selectedThinkingModelId = nil
+            
+            LoggerService.shared.info("Thinking model weights completely unloaded: \(modelId)")
         }
     }
 } 

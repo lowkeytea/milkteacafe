@@ -73,19 +73,13 @@ class DecisionResponseActionGroup: ActionGroup {
     }
     
     func execute(with initialMessage: Message) async {
-        // Store idle time for context
-        if let idleTime = await MainActor.run(body: { viewModel?.idleStateManager?.getCurrentIdleTime() }) {
-            lastIdleTime = idleTime
-        }
-        
+
         // Begin the decision process - now always runs since probability is managed externally
         await runDecisionAction(initialMessage: initialMessage)
     }
     
     // MARK: - Decision Action
     private func runDecisionAction(initialMessage: Message) async {
-        guard let viewModel = viewModel else { return }
-        
         // Get recent messages for context
         let recentMessages = await MainActor.run {
             MessageStore.shared.getRecentMessages(category: .chat, limit: 20)
@@ -180,7 +174,7 @@ Broader context from conversation history summaries for reference:
 """
         }
         
-        let decisionAction = await AnyAction(
+        let decisionAction = AnyAction(
             systemPrompt: "",
             messages: [],
             message: Message(role: .user, content: decisionPrompt),

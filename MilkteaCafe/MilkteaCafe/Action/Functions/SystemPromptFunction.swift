@@ -7,7 +7,7 @@ class SystemPromptFunction: FunctionProtocol {
         let systemPrompt = SystemPromptManager.shared.getSystemPrompt()
         return FunctionCall.FunctionDefinition(
             name: "changeSystemPrompt",
-            description: "Change the system prompt text.  Be mindful if the user is asking to update some of the text or change it completely. The original system prompt is: **\(systemPrompt)**",
+            description: "Change the system prompt text.  Be mindful if the user is asking to update some of the text or change it completely. The original system prompt is: **\(systemPrompt)**. Only change it if the user explicitly mentions system prompt in their request.",
             parameters: [
                 "prompt": FunctionCall.FunctionParameterDefinition(
                     type: "String",

@@ -4,7 +4,7 @@ class LlamaConfig: ObservableObject {
     static let shared = LlamaConfig()
     
     private struct Defaults {
-        static let contextSize = Self.determineModelContext() ? 8192 : canUseGPU() ? 8192 : 8192
+        static let contextSize = Self.determineModelContext() ? 2048 : canUseGPU() ? 2048 : 2048
         static let batchSize = 256
         static let temperature: Float = 1.0
         static let topP: Float = 0.98

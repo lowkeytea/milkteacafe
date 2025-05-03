@@ -51,19 +51,20 @@ struct FullResponseFilter: TokenFilter {
     }
 }
 
-/// Actor responsible for formatting prompts and streaming tokens from a LlamaModel
+/// Actor responsible for formatting prompts and streaming tokens from a LlamaContext
 actor ResponseGenerator {
     static let shared = ResponseGenerator()
 
-    /// Generate a filtered async stream of text units from a LlamaModel
+    /// Generate a filtered async stream of text units from a LlamaContext
     /// - Parameters:
-    ///   - llama: the LlamaModel instance
+    ///   - context: the LlamaContext instance for text generation
     ///   - history: previous chat messages
+    ///   - systemPrompt: the system prompt to use
     ///   - newUserMessage: the new user ChatMessage to append
     ///   - filter: a TokenFilter to control unit emissions
     /// - Returns: an AsyncStream of String units (tokens or sentences)
     func generate(
-        llama: LlamaModel,
+        llama context: LlamaContext,
         history: [Message],
         systemPrompt: String,
         newUserMessage: Message,
@@ -82,24 +83,11 @@ actor ResponseGenerator {
                 promptMessages.append(newMsg)
 
                 // Initialize or append to context
-                if llama.n_cur == 0 {
+                if await context.n_cur == 0 {
                     // Prepend system instruction for the very first turn
-                    let userName: String? = NameAction.shared.getUserName()
-                    let assistantName: String? = NameAction.shared.getAssistantName()
-                    let userNamePrompt: String
-                    let assistantNamePrompt: String
-                    if (userName != nil) {
-                        userNamePrompt = "\n\nThe user's name is \(userName!)."
-                    } else {
-                        userNamePrompt = ""
-                    }
-                    if (assistantName != nil) {
-                        assistantNamePrompt = "\n\nThe assistant's name is \(assistantName!)."
-                    } else {
-                        assistantNamePrompt = ""
-                    }
+                    
                     promptMessages.insert(
-                        Message(role: .system, content: "\(systemPrompt) \(userNamePrompt) \(assistantNamePrompt)"),
+                        Message(role: .system, content: systemPrompt),
                         at: 0
                     )
                     // Format the full prompt for initialization
@@ -108,10 +96,10 @@ actor ResponseGenerator {
                         systemPrompt: nil
                     )
                     LoggerService.shared.info(
-                        "ResponseGenerator fullPrompt: '\(fullPrompt)' (length \(fullPrompt.count))"
+                        "ResponseGenerator for \(context.id) fullPrompt: '\(fullPrompt)' (length \(fullPrompt.count))"
                     )
-                    llama.setCancelled(false)
-                    let success = await llama.completionInit(fullPrompt)
+                    await context.setCancelled(false)
+                    let success = await context.completionInit(fullPrompt)
                     guard success else {
                         continuation.finish()
                         return
@@ -125,14 +113,14 @@ actor ResponseGenerator {
                     LoggerService.shared.info(
                         "ResponseGenerator formattedUserMessage: '\(formattedUser)' (length \(formattedUser.count))"
                     )
-                    llama.appendUserMessage(userMessage: formattedUser)
+                    await context.appendUserMessage(userMessage: formattedUser)
                 }
 
                 // Stream tokens through the filter
                 var f = filter
                 var currentToken = 0
                 while !Task.isCancelled,
-                      let token = llama.completionLoop(
+                      let token = await context.completionLoop(
                         maxTokens: LlamaConfig.shared.maxTokens,
                         currentToken: &currentToken
                     ) {
@@ -150,7 +138,7 @@ actor ResponseGenerator {
                 }
                 continuation.finish()
             }
-            // Handle cancellation/termination: abort LlamaModel and TTS
+            // Handle cancellation/termination
             continuation.onTermination = { @Sendable _ in
                 // Cancel the generation task
                 task.cancel()

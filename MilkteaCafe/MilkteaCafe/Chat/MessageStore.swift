@@ -8,6 +8,27 @@ class MessageStore {
     
     private init() {}
     
+    /// Gets the total count of user messages in the chat history
+    func getUserMessageCount() -> Int {
+        guard let box = messages else {
+            return 0
+        }
+        do {
+            // Count messages where role is user and category is chat
+            let count = try box.query {
+                Message.role.isEqual(to: MessageRole.user.rawValue) &&
+                Message.category.isEqual(to: MessageCategory.chat.rawValue)
+            }
+            .build()
+            .count()
+            
+            return count
+        } catch {
+            print("Error counting user messages: \(error)")
+            return 0
+        }
+    }
+    
     func getRecentMessages(category: MessageCategory, limit: Int = 10) -> [Message] {
         guard let box = messages else {
             return []

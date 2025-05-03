@@ -4,6 +4,8 @@ import Foundation
 /// Processes user input through function calling, 
 /// then runs chat and summary actions
 class FunctionCallActionGroup: ActionGroup {
+    // Configuration for summary action
+    static let messagesPerSummary = 5  // Run summary every N user messages
     // Storage for final results
     private(set) var results: [String: Any] = [:]
     
@@ -11,10 +13,16 @@ class FunctionCallActionGroup: ActionGroup {
     private var progressHandlers: [String: [(String) -> Void]] = [:]
     
     // Reference to view model (weak to avoid cycles)
-    private weak var viewModel: ChatViewModel?
+    weak var viewModel: ChatViewModel?
     
     // FunctionCall instance
-    private let functionCall: FunctionCall
+    let functionCall: FunctionCall
+    
+    // Prompt templates and system prompts
+    let thinkingSystemPrompt: String
+    let thinkingPromptTemplate: String
+    let chatSystemPrompt: String
+    let chatPromptTemplate: String
     
     // Identifiers for our actions
     enum ActionId {
@@ -24,8 +32,15 @@ class FunctionCallActionGroup: ActionGroup {
         static let summary = "summary"
     }
     
+    @MainActor
     init(viewModel: ChatViewModel) {
         self.viewModel = viewModel
+        
+        // Get prompt values from view model (needs MainActor to access these properties)
+        self.thinkingSystemPrompt = viewModel.thinkingSystemPrompt
+        self.thinkingPromptTemplate = viewModel.thinkingPromptTemplate
+        self.chatSystemPrompt = viewModel.chatSystemPrompt
+        self.chatPromptTemplate = viewModel.chatPromptTemplate
         
         // Create and configure FunctionCall
         self.functionCall = FunctionCall()
@@ -45,273 +60,154 @@ class FunctionCallActionGroup: ActionGroup {
     }
     
     /// Notify all subscribers of progress for a specific action
-    private func notifyProgress(actionId: String, token: String) {
+    func notifyProgress(actionId: String, token: String) {
         progressHandlers[actionId]?.forEach { handler in
             handler(token)
         }
     }
     
     /// Execute the full chain of actions
+    @MainActor
     func execute(with initialMessage: Message) async {
-        // Start with function call analysis
-        await runFunctionCallAction(initialMessage: initialMessage)
-    }
-    
-    // MARK: - Individual Action Execution Methods
-    
-    private func runFunctionCallAction(initialMessage: Message) async {
-
-        // Store the initial message for potential use in chained functions
-        let savedInitialMessage = initialMessage
+        // Create action queue for dependency-based execution
+        let queue = ActionQueue()
         
-        // Get system prompt from the FunctionCall instance
-        let systemPrompt = functionCall.getSystemPrompt()
+        // Define a shared action result dictionary
+        var actionResults: [String: Any] = [:]
         
-        let functionAction = AnyAction(
-            systemPrompt: systemPrompt,
-            messages: [],
-            message: Message(role: .user, content: initialMessage.content),
-            clearKVCache: true,
-            modelType: .thinking,
-            tokenFilter: FunctionCallFilter(),
-            progressHandler: { [weak self] token in
-                // Notify subscribers of function call progress
-                self?.notifyProgress(actionId: ActionId.functionCall, token: token)
-            },
-            runCode: { [weak self] response in
-                guard let self = self else { return (false, response) }
-                
-                // Process the response to execute the function
-                return self.functionCall.processResponse(response, initialMessage: savedInitialMessage)
-            },
-            postAction: { [weak self] result in
-                guard let self = self else { return }
-                
-                // Store result
-                if let resultDict = result as? [String: Any] {
-                    self.results[ActionId.functionCall] = resultDict
-                    
-                    // Extract function name and result
-                    let functionName = resultDict["functionCalled"] as? String ?? "unknown"
-                    let functionResult = resultDict["result"] as? Bool ?? false
-                    
-                    LoggerService.shared.info("Function \(functionName) executed with result: \(functionResult)")
-                    
-                    // Proceed to next action with modified message if needed
-                    var modifiedMessage = initialMessage
-                    
-                    // If function was successful, add context for the chat action
-                    if functionResult {
-                        var additionalContext = ""
-                        
-                        // Add specific context based on which function was called
-                        switch functionName {
-                        case "changeSystemPrompt":
-                            additionalContext = "\n\nThe system prompt was updated successfully."
-                        case "rememberName":
-                            additionalContext = "\n\nThe assistant has remembered a name."
-                        case "enableVoiceSupport":
-                            let enabled = resultDict["result"] as? Bool ?? false
-                            additionalContext = "\n\nVoice support has been \(enabled ? "enabled" : "disabled")."
-                        case "noOperation":
-                            // No additional context needed for no-op
-                            break
-                        default:
-                            // For any custom functions
-                            additionalContext = "\n\nThe function '\(functionName)' was executed successfully."
-                        }
-                        
-                        // Only modify message if we have additional context
-                        if !additionalContext.isEmpty {
-                            modifiedMessage = Message(
-                                role: .user,
-                                category: initialMessage.category,
-                                content: initialMessage.content + additionalContext,
-                                date: initialMessage.timestamp
-                            )
-                        }
-                    }
-                    
-                    // Proceed to tone action instead of directly to chat
-                    Task {
-                        await self.runToneAction(initialMessage: modifiedMessage, functionResult: resultDict)
-                    }
-                } else {
-                    // Function call failed or invalid response
-                    LoggerService.shared.warning("Invalid function call result")
-                    Task {
-                        await self.runToneAction(initialMessage: initialMessage, functionResult: nil)
-                    }
-                }
+        // Create action nodes with their dependencies
+        
+        // 1. Tone Analysis Action (no dependencies)
+        let toneAction = createToneAction(initialMessage: initialMessage) { result in
+            actionResults[ActionId.tone] = result
+        }
+        let toneNode = ActionNode(id: ActionId.tone, action: toneAction)
+        
+        // 2. Function Call Action (depends on tone)
+        let functionAction = createFunctionCallAction(initialMessage: initialMessage) { result in
+            actionResults[ActionId.functionCall] = result
+        }
+        let functionNode = ActionNode(
+            id: ActionId.functionCall, 
+            action: functionAction,
+            dependencies: [ActionId.tone],
+            completion: { result in
+                LoggerService.shared.info("FunctionCallActionGroup: Function call action completed with result type: \(type(of: result))")
+                // Store the result in our shared results dictionary
+                actionResults[ActionId.functionCall] = result
             }
         )
         
-        await ActionRunner.shared.run(functionAction)
-    }
-    
-    private func runToneAction(initialMessage: Message, functionResult: [String: Any]?) async {
-        guard let viewModel = viewModel else { return }
-        
-        let history = MessageStore.shared.getRecentMessages(category: .summary, limit: 1).first?.content ?? ""
-        // Get the thinking system prompt and template
-        let systemPrompt = await MainActor.run {
-            return viewModel.thinkingSystemPrompt
+        // 3. Chat Action (depends on tone, but not on function call completion)
+        // With lazy preparation, we don't need to pass the queue anymore since
+        // dependencies are injected just before execution
+        let chatAction = await createChatAction(
+            initialMessage: initialMessage,
+            toneId: ActionId.tone
+        ) { result in
+            actionResults[ActionId.chat] = result
         }
         
-        let promptTemplate = await MainActor.run {
-            return viewModel.thinkingPromptTemplate
-        }
-        
-        let content = promptTemplate.replacingOccurrences(of: "{prompt}", with: history + "\n\nUser: \(initialMessage.content)")
-        
-        let toneAction = AnyAction(
-            systemPrompt: systemPrompt,
-            messages: [],
-            message: Message(role: .user, content: content),
-            clearKVCache: true,
-            modelType: .thinking,
-            tokenFilter: FullResponseFilter(),
-            progressHandler: { [weak self] token in
-                // Notify subscribers of tone progress
-                self?.notifyProgress(actionId: ActionId.tone, token: token)
-            },
-            runCode: { response in (false, response) },
-            postAction: { result in
-            
-                let toneAnalysis = (result as? String) ?? ""
-                
-                // Store result
-                self.results[ActionId.tone] = toneAnalysis
-                
-                // Update UI on the main actor
-                Task { @MainActor in
-                    self.viewModel?.thinkingTone = toneAnalysis
-                }
-                
-                // Proceed to chat action
-                Task {
-                    await self.runChatAction(initialMessage: initialMessage, functionResult: functionResult, toneAnalysis: toneAnalysis)
-                }
-            }
-        )
-        
-        await ActionRunner.shared.run(toneAction)
-    }
-    
-    private func runChatAction(initialMessage: Message, functionResult: [String: Any]?, toneAnalysis: String) async {
-        guard let viewModel = viewModel else { return }
-        
-        // Get history and system prompt on the main actor
-        let history = await MainActor.run {
-            return MessageStore.shared.getRecentMessages(category: .chat)
-        }
-        
-        let systemPrompt = await MainActor.run {
-            return viewModel.chatSystemPrompt
-        }
-        
-        let usesTTS = await MainActor.run {
-            return viewModel.ttsEnabled
-        }
-        
-        // Get chat prompt template
-        let promptTemplate = await MainActor.run {
-            return viewModel.chatPromptTemplate
-        }
-        
-        // Format the final prompt with tone information if available
-        var userMessage = initialMessage
-        if !toneAnalysis.isEmpty {
-            // Format the prompt template with tone
-            let formattedPrompt = promptTemplate
-                .replacingOccurrences(of: "{tone}", with: toneAnalysis)
-                .replacingOccurrences(of: "{prompt}", with: initialMessage.content)
-            
-            // Create a new message with the formatted content
-            userMessage = Message(
-                role: .user,
-                category: initialMessage.category,
-                content: formattedPrompt,
-                date: initialMessage.timestamp
-            )
-        }
-        
-        let chatAction = AnyAction(
-            systemPrompt: systemPrompt,
-            messages: history,
-            message: userMessage,
-            clearKVCache: false,
-            modelType: .chat,
-            tokenFilter: usesTTS ? SentenceFilter() : PassThroughFilter(),
-            progressHandler: { [weak self] token in
-                // Notify subscribers of chat progress
-                self?.notifyProgress(actionId: ActionId.chat, token: token)
-            },
-            runCode: { response in (false, response) },
-            postAction: { result in
-    
+        let chatNode = ActionNode(
+            id: ActionId.chat, 
+            action: chatAction,
+            dependencies: [ActionId.tone],
+            completion: { result in
                 let reply = (result as? String) ?? ""
                 
-                // Store result
-                self.results[ActionId.chat] = reply
-                // Persist the final assistant response
+                // Store in message store directly
                 let assistantMsg = Message(role: .assistant, category: .chat, content: reply)
                 MessageStore.shared.addMessage(assistantMsg)
-
-                // Proceed to next action after a brief delay to ensure history is updated
-                Task {
-                    try? await Task.sleep(nanoseconds: 100_000_000) // 100ms delay
-                    await self.runSummaryAction()
-                }
             }
         )
         
-        await ActionRunner.shared.run(chatAction)
-    }
-    
-    private func runSummaryAction() async {
-        guard let viewModel = viewModel else { return }
+        // 4. Summary Action (run only every N messages)
+        var nodesToRun = [toneNode, functionNode, chatNode]
         
-        // Get history on the main actor
-        let history = await MainActor.run {
-            return viewModel.history
-        }
+        // Check if we should run summary based on message count
+        let userMessageCount = MessageStore.shared.getUserMessageCount()
+        let shouldRunSummary = userMessageCount % Self.messagesPerSummary == 0
         
-        // Format messages
-        let content = history.map { "The \($0.role.rawValue) said: \($0.content)\n" }.joined()
-        let summaryPrompt = "Summarize the following conversation in the form of 3 or less sentences for the user, and 3 or less for the assistant: \n\n\(content)"
-        
-        let summaryAction = AnyAction(
-            systemPrompt: "You are an AI agent who summarizes conversations. Focus on capturing the key details of the conversation.",
-            messages: [],
-            message: Message(role: .user, content: summaryPrompt),
-            clearKVCache: true,
-            modelType: .thinking,
-            tokenFilter: FullResponseFilter(),
-            progressHandler: { [weak self] token in
-                // Notify subscribers of summary progress
-                self?.notifyProgress(actionId: ActionId.summary, token: token)
-            },
-            runCode: { response in (false, response) },
-            postAction: { [weak self] result in
-                guard let self = self else { return }
+        // Only create and add the summary node if we should run it
+        if shouldRunSummary {
+            LoggerService.shared.info("FunctionCallActionGroup: Running summary action (message count: \(userMessageCount))")
+            
+            let summaryAction = createSummaryAction { result in
+                actionResults[ActionId.summary] = result
                 
-                let summary = (result as? String) ?? ""
-                
-                // Store result
-                self.results[ActionId.summary] = summary
-                
-                // Update UI and persist summary on the main actor
+                // Update UI and persist on completion
                 Task { @MainActor in
-                    self.viewModel?.thinkingOutput = summary
+                    self.viewModel?.thinkingOutput = (result as? String) ?? ""
                     self.viewModel?.isGenerating = false
+                    
                     // Persist the summary message
+                    let summary = (result as? String) ?? ""
                     let summaryMsg = Message(role: .assistant, category: .summary, content: summary)
                     MessageStore.shared.addMessage(summaryMsg)
                 }
             }
-        )
+            let summaryNode = ActionNode(
+                id: ActionId.summary, 
+                action: summaryAction,
+                dependencies: [ActionId.chat, ActionId.functionCall]
+            )
+            
+            nodesToRun.append(summaryNode)
+        } else {
+            #if DEBUG
+            LoggerService.shared.debug("FunctionCallActionGroup: Skipping summary action (message count: \(userMessageCount))")
+            #endif
+            
+            // Still need to handle UI state update when not running summary
+            Task { @MainActor in
+                // Wait a short time to allow chat to complete
+                try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+                self.viewModel?.isGenerating = false
+            }
+        }
         
-        await ActionRunner.shared.run(summaryAction)
+        // Add all nodes to the queue
+        await queue.enqueueAll(nodesToRun)
+        
+        // Create a watchdog task that will ensure we don't hang forever
+        let watchdogTask = Task {
+            do {
+                // Wait up to 80 seconds max for queue processing
+                try await Task.sleep(nanoseconds: 80_000_000_000)
+                LoggerService.shared.warning("FunctionCallActionGroup: Queue processing timed out, forcing cleanup")
+                await queue.cleanup()
+            } catch {
+                // Task was cancelled normally when queue finished
+            }
+        }
+        
+        // Wait for all queue processing to complete
+        var observationTask: Task<Void, Never>?
+        
+        await withCheckedContinuation { continuation in
+            observationTask = Task {
+                // Check every 250ms if any tasks are still running
+                while !Task.isCancelled {
+                    // Check if all nodes are done
+                    let isDone = await queue.allNodesComplete()
+                    if isDone {
+                        break
+                    }
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                }
+                
+                // Clean up resources
+                await queue.cleanup()
+                
+                // Cancel the watchdog
+                watchdogTask.cancel()
+                
+                // Resume continuation
+                continuation.resume()
+            }
+        }
+        
+        // Cancel our observation task if it's still running
+        observationTask?.cancel()
     }
 }
