@@ -63,3 +63,5 @@ fastlane/test_output
 MilkteaCafe/MilkteaCafe/KokoroData/
 MilkteaCafe/MilkteaCafe.xcodeproj/
 MilkteaCafe/MilkteaCafe/MilkteaCafe.entitlements
+
+**/.claude/settings.local.json

@@ -15,9 +15,9 @@ extension FunctionCallActionGroup {
             inputMessage: Message(role: .user, content: initialMessage.content),
             // Process function executes the ML model directly
             process: { messageContent in
-                // Create and use the text classifier
-                if let classifier = TextClassifierFactory.createShortLongClassifier(),
-                   let result = classifier.classifyShortLong(messageContent) {
+                // Use the registry to get the classifier
+                if let classifier = TextClassifierRegistry.shared.classifier(forKey: "shortLong"),
+                   let result = classifier.classify(messageContent) {
                     
                     // Log the classification result
                     LoggerService.shared.info("ML Classification: \(result.label) with confidence \(result.confidence)")
@@ -27,7 +27,7 @@ extension FunctionCallActionGroup {
                     if result.isShort {
                         toneGuidance = "You should reply with a short response."
                     } else {
-                        toneGuidance = "You should reply with a long response."
+                        toneGuidance = ""
                     }
                     
                     // Include confidence and all predictions in debug mode
@@ -69,12 +69,54 @@ extension FunctionCallActionGroup {
         )
     }
     
-    /// Creates a function call action using the lazy approach
+    /// Creates a function call action, first checking if it's a function with the BaseFunctionClassifier
     func createFunctionCallAction(initialMessage: Message, completion: @escaping (Any) -> Void) -> Action {
+        // Check for "noOperation" first, before creating any LLM action
+        do {
+            let functionClassifier = try BaseFunctionClassifier()
+            if let result = functionClassifier.classify(initialMessage.content) {
+                // Check the analysis method used and log appropriately
+                if result.isNoOperation {
+                    // This is not a function command, create a LocalMLAction that bypasses the LLM completely
+                    LoggerService.shared.info("Function classifier determined this is a noOperation (method: \(result.analyzedBy)), bypassing LLM function call")
+                    
+                    return LocalMLAction(
+                        inputMessage: initialMessage,
+                        process: { _ in
+                            // Create a result dictionary indicating noOperation
+                            let noOpResult: [String: Any] = [
+                                "functionCalled": "noOperation",
+                                "result": true,
+                                "skippedLLM": true,
+                                "analyzedBy": result.analyzedBy
+                            ]
+                            return noOpResult
+                        },
+                        postAction: { result in
+                            if let resultDict = result as? [String: Any] {
+                                completion(resultDict)
+                            } else {
+                                completion(["functionCalled": "noOperation", "result": true, "skippedLLM": true])
+                            }
+                        }
+                    )
+                } else {
+                    // This is a potential function command
+                    LoggerService.shared.info("Function classifier predicted: \(result.classification.rawValue) with confidence \(result.confidence), analyzed by: \(result.analyzedBy)")
+                }
+            }
+        } catch {
+            // If classifier fails, proceed with LLM call as fallback
+            LoggerService.shared.warning("Function classifier failed: \(error), proceeding with LLM call")
+        }
+        
+        // If we get here, we need to use the LLM for function classification
+        // Create a placeholder message that won't be sent to the LLM until prepared
+        // This fixes the issue of sending two prompts to the thinking model
         return AnyAction(
-            systemPrompt: "", // Will be prepared during lazy execution
+            systemPrompt: "PLACEHOLDER_SYSTEM_PROMPT", // Placeholder to be replaced during preparation
             messages: [],
-            message: Message(role: .user, content: ""),
+            message: Message(role: .system, content: "PLACEHOLDER_MESSAGE"),
             clearKVCache: true,
             modelType: .thinking,
             tokenFilter: FunctionCallFilter(),
@@ -94,9 +136,11 @@ extension FunctionCallActionGroup {
                 LoggerService.shared.debug("Function call action prepared with system prompt length: \(systemPrompt.count)")
                 #endif
                 
-                // We don't need to modify the message for function calls, just prepare the system prompt
-                // Return true, nil message, and new system prompt
-                return (true, nil, systemPrompt)
+                // Create a real user message to provide to the LLM
+                let userMessage = Message(role: .user, content: initialMessage.content)
+                
+                // Return success, with the user message and the system prompt
+                return (true, userMessage, systemPrompt)
             },
             runCode: { [weak self] response in
                 guard let self = self else { return (false, response) }
@@ -137,20 +181,16 @@ extension FunctionCallActionGroup {
         // Get history directly from message store
         let history = MessageStore.shared.getRecentMessages(category: .chat)
         
-        // Get tts setting with proper MainActor context
-        let usesTTS = await MainActor.run { viewModel.ttsEnabled }
-        
         // Use the group's prompt templates
         let systemPrompt = self.chatSystemPrompt
         
-        // Create the action with just the basics - detailed preparation happens later
         return AnyAction(
             systemPrompt: systemPrompt,
             messages: history,
-            message: initialMessage, // This will be replaced during preparation
+            message: initialMessage,
             clearKVCache: false,
             modelType: .chat,
-            tokenFilter: usesTTS ? SentenceFilter() : PassThroughFilter(),
+            tokenFilter:  SentenceFilter(),
             progressHandler: { [weak self] token in
                 // Notify subscribers of chat progress
                 self?.notifyProgress(actionId: ActionId.chat, token: token)
@@ -175,10 +215,16 @@ extension FunctionCallActionGroup {
                     LoggerService.shared.warning("Chat action falling back to viewModel for tone - dependency system may not be working properly")
                 }
                 
+                let username: String = NameAction.shared.getUserName() ?? ""
+                let assistantName: String = NameAction.shared.getAssistantName() ?? ""
+                let userNameAddition: String = (username != "") ? "\nThe user's name is \(username)." : ""
+                let assistantNameAddition: String = (assistantName != "") ? " \nThe assistant's name is \(assistantName)." : ""
                 // Format the prompt with tone information
                 let formattedPrompt = self.chatPromptTemplate
                     .replacingOccurrences(of: "{tone}", with: toneAnalysis)
                     .replacingOccurrences(of: "{prompt}", with: initialMessage.content)
+                    .appending(userNameAddition)
+                    .appending(assistantNameAddition)
                 
                 // Log the formatted prompt to help with debugging
                 #if DEBUG
@@ -223,11 +269,8 @@ extension FunctionCallActionGroup {
                 self?.notifyProgress(actionId: ActionId.summary, token: token)
             },
             // Lazy preparation that can use dependencies
-            prepare: { [weak self, chatId = ActionId.chat, functionId = ActionId.functionCall] dependencies -> (Bool, Message?, String?) in
-                guard let self = self else {
-                    return (false, nil, nil)
-                }
-                
+            prepare: { [chatId = ActionId.chat, functionId = ActionId.functionCall] dependencies -> (Bool, Message?, String?) in
+
                 // Log the dependencies we're using
                 #if DEBUG
                 LoggerService.shared.debug("Summary action preparing with dependencies: \(dependencies.keys.joined(separator: ", "))")

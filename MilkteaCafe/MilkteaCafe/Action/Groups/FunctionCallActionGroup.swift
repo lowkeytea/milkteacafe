@@ -90,7 +90,7 @@ class FunctionCallActionGroup: ActionGroup {
         let functionNode = ActionNode(
             id: ActionId.functionCall, 
             action: functionAction,
-            dependencies: [ActionId.tone],
+            dependencies: [],
             completion: { result in
                 LoggerService.shared.info("FunctionCallActionGroup: Function call action completed with result type: \(type(of: result))")
                 // Store the result in our shared results dictionary

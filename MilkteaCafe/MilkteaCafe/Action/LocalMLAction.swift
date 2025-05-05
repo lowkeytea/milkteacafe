@@ -51,11 +51,6 @@ extension ActionRunner {
         // Skip LLM processing entirely
         let result = action.processDataClosure(action.message.content)
         action.postAction(result)
-        
-        // If this is a thinking action, release the thinking model
-        if action.modelType == .thinking {
-            await ModelManager.shared.releaseThinkingModel()
-        }
     }
     
     /// Override run method to check for LocalMLAction

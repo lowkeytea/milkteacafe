@@ -1,5 +1,9 @@
 import SwiftUI
 
+#if DEBUG
+import Foundation
+#endif
+
 struct SettingsView: View {
     @ObservedObject var viewModel: ChatViewModel
 
@@ -34,6 +38,26 @@ struct SettingsView: View {
                         }
                     }
                 }
+                
+                #if DEBUG
+                // Debug tools section - only visible in debug builds
+                Section(header: Text("Developer Tools")) {
+                    Button(action: {
+                        // Run the function classifier tests
+                        LoggerService.shared.info("Starting function classifier tests...")
+                        FunctionClassifierDebugger.runTests()
+                        LoggerService.shared.info("Function classifier tests completed. Check console for results.")
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "wrench.fill")
+                                .font(.system(size: 20))
+                            
+                            Text("Test Function Classifier")
+                                .font(.headline)
+                        }
+                    }
+                }
+                #endif
             }
             .navigationTitle("Settings")
         }

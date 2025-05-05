@@ -136,6 +136,7 @@ actor ResponseGenerator {
                     #endif
                     continuation.yield(unit)
                 }
+                await self.postGenerationCleanup(context)
                 continuation.finish()
             }
             // Handle cancellation/termination
@@ -145,4 +146,15 @@ actor ResponseGenerator {
             }
         }
     }
-} 
+    
+    func postGenerationCleanup(_ model: LlamaContext) async {
+        LoggerService.shared.debug("Checking if reset needed...")
+        
+        do {
+            if await (LlamaBridge.shared.checkResetPending()) {
+                LoggerService.shared.info("Resetting cache and history")
+                await model.clearContext()
+            }
+        }
+    }
+}

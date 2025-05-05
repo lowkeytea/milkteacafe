@@ -167,6 +167,7 @@ class FunctionCall {
         }
         
         do {
+            LoggerService.shared.debug("Data for function call: \(jsonString)")
             let decoder = JSONDecoder()
             let functionCall = try decoder.decode(FunctionCallResponse.self, from: jsonData)
             

@@ -40,7 +40,7 @@ class MessageStore {
                 .ordered(by: Message.timestamp, flags: [.descending])
                 .build()
                 .find(offset: 0, limit: limit)
-            return found
+            return found.reversed()
         } catch {
             return []
         }

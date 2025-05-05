@@ -17,14 +17,6 @@ actor ActionRunner {
      * Model weights are preserved for quick reuse.
      */
     func run(_ action: Action) async {
-        // Check if this is a LocalMLAction that bypasses the LLM
-        if let mlAction = action as? LocalMLAction {
-            // Run ML action directly without using LLM
-            let result = mlAction.runCode(on: "")
-            mlAction.postAction(result.result)
-            LoggerService.shared.debug("Executed LocalMLAction directly, bypassing LLM")
-            return
-        }
         
         // For thinking model, dynamically load/unload contexts
         if action.modelType == .thinking {
@@ -50,7 +42,13 @@ actor ActionRunner {
     
     /// Execute an action with error handling
     private func executeActionWithErrorHandling(_ action: Action) async throws {
-        // Create a task that can be cancelled
+        // Handle LocalMLAction directly without creating a cancellable task
+        if action is LocalMLAction {
+            await executeAction(action)
+            return
+        }
+        
+        // For standard LLM actions, create a task that can be cancelled
         let task = Task {
             await executeAction(action)
         }
@@ -73,7 +71,21 @@ actor ActionRunner {
     
     /// Execute an action with a completion handler
     func executeAction(_ action: Action, continuation: ((Any) -> Void)?) async {
-        // Context selection code
+        // First, check if this is a special action type that doesn't need LLM
+        if let mlAction = action as? LocalMLAction {
+            // Execute the ML action directly without using LLM
+            let result = mlAction.runCode(on: "")
+            mlAction.postAction(result.result)
+            LoggerService.shared.debug("ActionRunner.executeAction: Executed LocalMLAction directly, bypassing LLM")
+            
+            // Also call continuation if provided
+            if let continuation = continuation {
+                continuation(result.result)
+            }
+            return
+        }
+        
+        // For standard LLM-based actions, proceed with context selection
         let context: LlamaContext
         switch action.modelType {
         case .chat:
@@ -212,29 +224,12 @@ actor ActionRunner {
      * 5. Ensure proper cleanup even when actions fail or are cancelled
      */
     func runAll(_ actions: [Action]) async {
-        // First identify any LocalMLActions that need special handling
-        let (mlActions, standardActions) = actions.reduce(into: ([Action](), [Action]())) { result, action in
-            if action is LocalMLAction {
-                result.0.append(action)
-            } else {
-                result.1.append(action)
-            }
-        }
+        // Process all actions through the standard path
+        // The executeAction method will automatically handle
+        // different action types appropriately
         
-        // Run ML actions directly first 
-        for action in mlActions {
-            if let mlAction = action as? LocalMLAction {
-                let result = mlAction.runCode(on: "")
-                mlAction.postAction(result.result)
-                LoggerService.shared.debug("Executed LocalMLAction directly, bypassing LLM")
-            }
-        }
-        
-        // Skip further processing if no standard actions
-        guard !standardActions.isEmpty else { return }
-        
-        // Check if all remaining actions are of the same type to optimize loading/unloading
-        let allThinking = standardActions.allSatisfy { $0.modelType == .thinking }
+        // Check if all actions are of the same type to optimize loading/unloading
+        let allThinking = actions.allSatisfy { $0.modelType == .thinking && !($0 is LocalMLAction) }
         
         if allThinking {
             // Acquire thinking model context once for all actions
@@ -246,7 +241,7 @@ actor ActionRunner {
             
             do {
                 // Execute all actions with error handling
-                for action in standardActions {
+                for action in actions {
                     try? await executeActionWithErrorHandling(action)
                 }
             } catch {
@@ -255,7 +250,7 @@ actor ActionRunner {
             }
         } else {
             // Mixed action types - handle loading/unloading per action
-            for action in standardActions {
+            for action in actions {
                 await run(action)
             }
         }
