@@ -9,6 +9,7 @@ enum LlamaError: Error {
     case embeddingError(Error)
     case underlying(Error)
     case feedRefreshInProgress
+    case fileNotFound(path: String)
     
     var localizedDescription: String {
         switch self {
@@ -28,6 +29,8 @@ enum LlamaError: Error {
             return error.localizedDescription
         case .feedRefreshInProgress:
             return "Feed refresh is in progress. Please wait to prevent memory conflicts."
+        case .fileNotFound(let path):
+            return "Model file not found at: \(path)"
         }
     }
 }

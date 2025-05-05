@@ -1,50 +1,57 @@
 import Foundation
+import CoreML
 
 /// Extension containing factory methods for creating actions
 extension FunctionCallActionGroup {
     
-    /// Creates a tone analysis action using the lazy pattern
+    /// Creates a tone analysis action using the ML classifier
     func createToneAction(initialMessage: Message, completion: @escaping (Any) -> Void) -> Action {
         guard viewModel != nil else {
             return createEmptyAction(completion: completion)
         }
         
-        // Use the group's prompt templates instead of accessing view model
-        let systemPrompt = self.thinkingSystemPrompt
-        
-        return AnyAction(
-            systemPrompt: systemPrompt,
-            messages: [],
-            message: Message(role: .user, content: ""), // This will be prepared later
-            clearKVCache: true,
-            modelType: .thinking,
-            tokenFilter: FullResponseFilter(),
-            progressHandler: { [weak self] token in
-                // Notify subscribers of tone progress
-                self?.notifyProgress(actionId: ActionId.tone, token: token)
-            },
-            // Lazy preparation step - runs right before execution
-            prepare: { [weak self, initialMessage] dependencies -> (Bool, Message?, String?) in
-                guard let self = self else {
-                    return (false, nil, nil)
+        // Create a LocalMLAction instead of AnyAction to bypass the LLM
+        return LocalMLAction(
+            inputMessage: Message(role: .user, content: initialMessage.content),
+            // Process function executes the ML model directly
+            process: { messageContent in
+                // Create and use the text classifier
+                if let classifier = TextClassifierFactory.createShortLongClassifier(),
+                   let result = classifier.classifyShortLong(messageContent) {
+                    
+                    // Log the classification result
+                    LoggerService.shared.info("ML Classification: \(result.label) with confidence \(result.confidence)")
+                    
+                    // Determine tone guidance based on classification
+                    let toneGuidance: String
+                    if result.isShort {
+                        toneGuidance = "You should reply with a short response."
+                    } else {
+                        toneGuidance = "You should reply with a long response."
+                    }
+                    
+                    // Include confidence and all predictions in debug mode
+                    #if DEBUG
+                    let debugInfo = """
+                    Classification: \(result.label.uppercased())
+                    Confidence: \(Int(result.confidence * 100))%
+                    All predictions: \(result.allPredictions)
+                    """
+                    LoggerService.shared.debug(debugInfo)
+                    #endif
+                    
+                    return toneGuidance
+                } else {
+                    // Fallback if classifier fails
+                    LoggerService.shared.warning("ML Classifier failed, using default tone")
+                    return "Reply naturally based on the query length and complexity."
                 }
-                
-                let history = MessageStore.shared.getRecentMessages(category: .summary, limit: 1).first?.content ?? ""
-                let content = self.thinkingPromptTemplate.replacingOccurrences(of: "{prompt}", with: history + "\n\nUser: \(initialMessage.content)")
-                
-                let message = Message(role: .user, content: content)
-                #if DEBUG
-                LoggerService.shared.debug("Tone action prepared message with content length: \(content.count)")
-                #endif
-                
-                return (true, message, nil)
             },
-            runCode: { response in (false, response) },
+            // Post action function for handling the result
             postAction: { result in
                 let toneAnalysis = (result as? String) ?? ""
                 
                 // Store result for UI on the main actor (needs @MainActor context)
-                // This is for UI only, not for passing data between actions
                 Task { @MainActor in
                     if let vm = self.viewModel {
                         vm.thinkingTone = toneAnalysis
@@ -52,7 +59,6 @@ extension FunctionCallActionGroup {
                 }
                 
                 // Call completion handler to pass the result to the next action
-                // This is the primary mechanism for passing data between actions
                 completion(toneAnalysis)
                 
                 // Log the tone analysis to help with debugging

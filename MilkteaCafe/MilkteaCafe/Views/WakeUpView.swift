@@ -5,7 +5,6 @@ struct WakeUpView: View {
     @State private var showPrompt = false
     @State private var isGlowing = false
     @State private var downloadComplete = false
-    @State private var downloadProgress: Double = 0
     @State private var dotCount = 1
     private let gemmaModel = ModelManager.shared.gemmaModel
     private let timer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
@@ -51,58 +50,76 @@ struct WakeUpView: View {
                             .onAppear {
                                 loadModel()
                             }
-                    } else if downloadProgress > 0 {
-                        // Download in progress
-                        VStack {
-                            Text("Please wait, goodness incoming\(dotsString())")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .padding(.bottom, 30)
-                                .onReceive(progressTimer) { _ in
-                                    dotCount = (dotCount % 3) + 1
-                                }
-                            
-                            ProgressView(value: downloadProgress)
-                                .progressViewStyle(LinearProgressViewStyle(tint: Color.blue))
-                                .frame(width: 250)
-                                .padding(.bottom, 10)
-                            
-                            Text("\(formatBytes(Int64(downloadProgress * Double(gemmaModel.defaultDownloadSize)))) / \(formatBytes(gemmaModel.defaultDownloadSize))")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                        }
                     } else {
-                        // Initial download prompt
-                        VStack {
-                            Text("M1lkt3a requires downloads to function. This is approximately 1.8GB of data.")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 30)
-                                .padding(.bottom, 30)
-                            
-                            Button(action: {
-                                startDownload()
-                            }) {
-                                Text("Ok")
-                                    .font(.system(size: 24, weight: .black, design: .rounded))
-                                    .foregroundColor(.black)
-                                    .padding(.horizontal, 40)
-                                    .padding(.vertical, 12)
-                                    .background(
-                                        ZStack {
-                                            RoundedRectangle(cornerRadius: 20)
-                                                .fill(Color.white)
-                                            RoundedRectangle(cornerRadius: 20)
-                                                .stroke(Color.blue, lineWidth: 3)
-                                        }
-                                    )
-                                    .shadow(color: Color.blue.opacity(0.5), radius: 8)
+                        // Download progress from model manager
+                        let progress = modelManager.downloadProgress(for: gemmaModel)
+                        
+                        if progress > 0 {
+                            // Download in progress with real progress
+                            VStack {
+                                Text("Please wait, goodness incoming\(dotsString())")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                    .padding(.bottom, 30)
+                                    .onReceive(progressTimer) { _ in
+                                        dotCount = (dotCount % 3) + 1
+                                    }
+                                
+                                // Use the actual progress from ModelManager
+                                // Ensure progress is clamped to valid range
+                                let clampedProgress = min(max(progress, 0.0), 1.0)
+                                
+                                ProgressView(value: clampedProgress)
+                                    .progressViewStyle(LinearProgressViewStyle(tint: Color.blue))
+                                    .frame(width: 250)
+                                    .padding(.bottom, 10)
+                                
+                                // Calculate bytes based on actual progress
+                                let downloadedBytes = Int64(clampedProgress * Double(gemmaModel.defaultDownloadSize))
+                                Text("\(formatBytes(downloadedBytes)) / \(formatBytes(gemmaModel.defaultDownloadSize))")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
                             }
+                        } else {
+                            // Initial download prompt
+                            VStack {
+                                Text("M1lkt3a requires downloads to function. This is approximately 1.8GB of data.")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 30)
+                                    .padding(.bottom, 30)
+                                
+                                Button(action: {
+                                    startDownload()
+                                }) {
+                                    Text("Ok")
+                                        .font(.system(size: 24, weight: .black, design: .rounded))
+                                        .foregroundColor(.black)
+                                        .padding(.horizontal, 40)
+                                        .padding(.vertical, 12)
+                                        .background(
+                                            ZStack {
+                                                RoundedRectangle(cornerRadius: 20)
+                                                    .fill(Color.white)
+                                                RoundedRectangle(cornerRadius: 20)
+                                                    .stroke(Color.blue, lineWidth: 3)
+                                            }
+                                        )
+                                        .shadow(color: Color.blue.opacity(0.5), radius: 8)
+                                }
+                            }
+                            .padding(.horizontal, 30)
                         }
-                        .padding(.horizontal, 30)
                     }
                 }
+            }
+        }
+        // Add a listener for download completion
+        .onChange(of: modelManager.modelInfos) { _ in
+            if modelManager.isDownloaded(gemmaModel) {
+                // If download state changed to downloaded, start loading model
+                loadModel()
             }
         }
     }
@@ -119,29 +136,26 @@ struct WakeUpView: View {
     }
     
     private func startDownload() {
-        // Start a Timer to simulate download progress
-        Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { timer in
-            // This is a simulation - in reality we would hook this up to the download progress
-            if self.downloadProgress < 1.0 {
-                // In production, this would be replaced with actual download progress from ModelManager
-                self.downloadProgress += 0.02
-            } else {
-                timer.invalidate()
-                DispatchQueue.main.async {
-                    self.loadModel()
-                }
-            }
-        }
-        
-        // Start the actual download
+        // Start the actual download using ModelManager
         modelManager.download(gemmaModel)
     }
     
     private func loadModel() {
         Task {
-            await modelManager.loadContextAsChat(gemmaModel)
-            DispatchQueue.main.async {
-                downloadComplete = true
+            // Check if file actually exists before loading
+            let path = modelManager.localURL(for: gemmaModel).path
+            if FileManager.default.fileExists(atPath: path) {
+                await modelManager.loadContextAsChat(gemmaModel)
+                DispatchQueue.main.async {
+                    downloadComplete = true
+                }
+            } else {
+                // If the file doesn't exist but state says it's downloaded,
+                // we have a state inconsistency, so start the download again
+                if modelManager.isDownloaded(gemmaModel) {
+                    LoggerService.shared.warning("Model marked as downloaded but file not found, restarting download")
+                    modelManager.download(gemmaModel)
+                }
             }
         }
     }

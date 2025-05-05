@@ -17,6 +17,15 @@ actor ActionRunner {
      * Model weights are preserved for quick reuse.
      */
     func run(_ action: Action) async {
+        // Check if this is a LocalMLAction that bypasses the LLM
+        if let mlAction = action as? LocalMLAction {
+            // Run ML action directly without using LLM
+            let result = mlAction.runCode(on: "")
+            mlAction.postAction(result.result)
+            LoggerService.shared.debug("Executed LocalMLAction directly, bypassing LLM")
+            return
+        }
+        
         // For thinking model, dynamically load/unload contexts
         if action.modelType == .thinking {
             // Acquire thinking model context before running
@@ -203,8 +212,29 @@ actor ActionRunner {
      * 5. Ensure proper cleanup even when actions fail or are cancelled
      */
     func runAll(_ actions: [Action]) async {
-        // Check if all actions are of the same type to optimize loading/unloading
-        let allThinking = !actions.isEmpty && actions.allSatisfy { $0.modelType == .thinking }
+        // First identify any LocalMLActions that need special handling
+        let (mlActions, standardActions) = actions.reduce(into: ([Action](), [Action]())) { result, action in
+            if action is LocalMLAction {
+                result.0.append(action)
+            } else {
+                result.1.append(action)
+            }
+        }
+        
+        // Run ML actions directly first 
+        for action in mlActions {
+            if let mlAction = action as? LocalMLAction {
+                let result = mlAction.runCode(on: "")
+                mlAction.postAction(result.result)
+                LoggerService.shared.debug("Executed LocalMLAction directly, bypassing LLM")
+            }
+        }
+        
+        // Skip further processing if no standard actions
+        guard !standardActions.isEmpty else { return }
+        
+        // Check if all remaining actions are of the same type to optimize loading/unloading
+        let allThinking = standardActions.allSatisfy { $0.modelType == .thinking }
         
         if allThinking {
             // Acquire thinking model context once for all actions
@@ -216,7 +246,7 @@ actor ActionRunner {
             
             do {
                 // Execute all actions with error handling
-                for action in actions {
+                for action in standardActions {
                     try? await executeActionWithErrorHandling(action)
                 }
             } catch {
@@ -225,7 +255,7 @@ actor ActionRunner {
             }
         } else {
             // Mixed action types - handle loading/unloading per action
-            for action in actions {
+            for action in standardActions {
                 await run(action)
             }
         }
@@ -246,4 +276,3 @@ actor ActionRunner {
         return full
     }
 }
-

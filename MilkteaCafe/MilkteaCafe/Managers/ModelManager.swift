@@ -4,9 +4,17 @@ import OSLog
 
 enum DownloadState: Equatable {
     case notDownloaded
-    case downloading
+    case downloading(progress: Double)  // Added progress information
     case downloaded
     case error(String)
+    
+    // Helper to get progress safely
+    var progress: Double {
+        if case .downloading(let progress) = self {
+            return progress
+        }
+        return 0.0
+    }
 }
 
 enum LoadState: Equatable {
@@ -98,13 +106,15 @@ final class ModelManager: ObservableObject {
         guard let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) else { return }
         objectWillChange.send()
         var info = modelInfos[idx]
-        info.downloadState = .downloading
+        info.downloadState = .downloading(progress: 0.0)  // Initialize with 0 progress
         modelInfos[idx] = info
 
         let remoteURL = descriptor.url
         let destination = localURL(for: descriptor)
-
-        let task = URLSession.shared.downloadTask(with: remoteURL) { tempURL, _, error in
+        
+        // Create a download task that reports progress
+        let session = URLSession.shared
+        let downloadTask = session.downloadTask(with: remoteURL) { tempURL, response, error in
             Task { @MainActor in
                 if let error = error {
                     LoggerService.shared.error("Download error for model '\(descriptor.id)': \(error.localizedDescription)")
@@ -114,6 +124,7 @@ final class ModelManager: ObservableObject {
                     self.modelInfos[idx] = updatedInfo
                     return
                 }
+                
                 guard let tempURL = tempURL else {
                     LoggerService.shared.error("Download failed: tempURL nil for model '\(descriptor.id)'")
                     self.objectWillChange.send()
@@ -122,12 +133,15 @@ final class ModelManager: ObservableObject {
                     self.modelInfos[idx] = updatedInfo
                     return
                 }
+                
                 do {
                     if FileManager.default.fileExists(atPath: destination.path) {
                         try FileManager.default.removeItem(at: destination)
                     }
+                    
                     try FileManager.default.moveItem(at: tempURL, to: destination)
                     LoggerService.shared.info("Completed download for model '\(descriptor.id)'")
+                    
                     self.objectWillChange.send()
                     var updatedInfo = self.modelInfos[idx]
                     updatedInfo.downloadState = .downloaded
@@ -141,7 +155,29 @@ final class ModelManager: ObservableObject {
                 }
             }
         }
-        task.resume()
+        
+        // Setup a URLSessionTaskDelegate to track progress
+        _ = downloadTask.progress.observe(\.fractionCompleted) { progress, _ in
+            Task { @MainActor in
+                guard let idx = self.modelInfos.firstIndex(where: { $0.id == descriptor.id }) else { return }
+                var info = self.modelInfos[idx]
+                
+                // Ensure progress is valid (between 0 and 1)
+                let progressValue = max(0.0, min(1.0, progress.fractionCompleted))
+                
+                // Only update if the downloadState is still .downloading
+                if case .downloading = info.downloadState {
+                    info.downloadState = .downloading(progress: progressValue)
+                    self.modelInfos[idx] = info
+                    self.objectWillChange.send()
+                    
+                    LoggerService.shared.debug("Download progress for '\(descriptor.id)': \(progressValue)")
+                }
+            }
+        }
+        
+        // Start the download
+        downloadTask.resume()
     }
 
     func delete(_ descriptor: ModelDescriptor) {
@@ -160,7 +196,16 @@ final class ModelManager: ObservableObject {
 
     func isDownloaded(_ descriptor: ModelDescriptor) -> Bool {
         guard let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) else { return false }
-        return modelInfos[idx].downloadState == .downloaded
+        if case .downloaded = modelInfos[idx].downloadState {
+            return true
+        }
+        return false
+    }
+    
+    /// Get the current download progress (0.0 to 1.0) for a model
+    func downloadProgress(for descriptor: ModelDescriptor) -> Double {
+        guard let idx = modelInfos.firstIndex(where: { $0.id == descriptor.id }) else { return 0.0 }
+        return modelInfos[idx].downloadState.progress
     }
 
     func isLoaded(_ descriptor: ModelDescriptor) -> Bool {
@@ -195,7 +240,9 @@ final class ModelManager: ObservableObject {
         }
         
         // Final check - if it's downloaded, it's potentially usable
-        return modelInfos.contains { $0.id == modelId && $0.downloadState == .downloaded }
+        return modelInfos.contains { model in
+            model.id == modelId && model.downloadState == .downloaded
+        }
     }
 
     /// Selects and loads the given descriptor into the 'chat' slot via LlamaBridge.
@@ -212,6 +259,11 @@ final class ModelManager: ObservableObject {
         }
         let path = localURL(for: descriptor).path
         do {
+            // Verify the file exists before attempting to load
+            if !FileManager.default.fileExists(atPath: path) {
+                throw LlamaError.fileNotFound(path: path)
+            }
+            
             // First ensure weights are loaded
             _ = try await LlamaBridge.shared.loadModelWeights(modelPath: path, weightId: descriptor.id)
             
@@ -238,6 +290,8 @@ final class ModelManager: ObservableObject {
                     self.modelInfos[idx] = info
                 }
             }
+            
+            LoggerService.shared.error("Failed to load model context: \(error.localizedDescription)")
         }
     }
 
@@ -256,6 +310,11 @@ final class ModelManager: ObservableObject {
         let path = localURL(for: descriptor).path
         Task.detached(priority: .userInitiated) {
             do {
+                // Verify the file exists before attempting to load
+                if !FileManager.default.fileExists(atPath: path) {
+                    throw LlamaError.fileNotFound(path: path)
+                }
+                
                 // First ensure weights are loaded
                 _ = try await LlamaBridge.shared.loadModelWeights(modelPath: path, weightId: descriptor.id)
                 
@@ -282,6 +341,8 @@ final class ModelManager: ObservableObject {
                         self.modelInfos[idx] = info
                     }
                 }
+                
+                LoggerService.shared.error("Failed to load thinking model context: \(error.localizedDescription)")
             }
         }
     }
@@ -479,9 +540,7 @@ final class ModelManager: ObservableObject {
     
     /// Completely unload thinking model, including weights
     func unloadThinkingModelWeights() async {
-        if let modelId = selectedThinkingModelId,
-           let descriptor = modelInfos.first(where: { $0.id == modelId })?.descriptor {
-            
+        if let modelId = selectedThinkingModelId {
             // First ensure context is unloaded
             await unloadThinkingModelContext()
             
