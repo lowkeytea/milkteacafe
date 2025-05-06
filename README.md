@@ -13,6 +13,8 @@ MilkteaCafe is a sample app demonstrating advanced functionality:
 - **Model Sharing**: Run multiple LLM contexts with shared weights
 - **ML Model Integration**: Utilize lightweight classifiers to optimize LLM usage
 
+- **WARNING** Running 2 instances of Gemma 4B requires an 8GB iPhone. It's been tested with an iPhone 15 Pro, IPhone 16 Pro, and an iPad Air M3.  You *don't* need to do the same in your own project, and the production app using the library 'What the Fluff!? News' only uses 1 model at a time and mlmodel files in order to work with iPhone 13 and up.
+
 ## Key Demonstrations
 
 The MilkteaCafe sample demonstrates:
