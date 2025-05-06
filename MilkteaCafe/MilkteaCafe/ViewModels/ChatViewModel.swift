@@ -1,6 +1,6 @@
 import Foundation
 import Combine
-import MilkteaLlamaKokoro
+import LowkeyTeaLLM
 
 // MARK: - Notification Names
 extension Notification.Name {
@@ -15,6 +15,7 @@ final class ChatViewModel: ObservableObject {
             UserDefaults.standard.set(ttsEnabled, forKey: "ttsEnabled")
         }
     }
+    
     @Published var viewableMessages: [ViewableMessage] = []
     @Published var inputText: String = ""
     /// Tracks if a generation is in progress
@@ -131,7 +132,7 @@ final class ChatViewModel: ObservableObject {
     private func loadPersistedChat() {
         // Load all persisted chat messages for UI (no limit)
         let raw = MessageStore.shared.getRecentMessages(category: .chat,
-                                                        limit: LlamaConfig.shared.historyMessageCount)
+                                                        limit: 8)
         self.viewableMessages = raw.map { ViewableMessage(from: $0) }.sorted(by: { $0.timestamp < $1.timestamp })
     }
 
@@ -202,7 +203,7 @@ final class ChatViewModel: ObservableObject {
         // Execute the action group
         generationTask = Task {
             do {
-                await actionGroup.execute(with: userMsg)
+                await actionGroup.execute(with: userMsg.toLlamaMessage())
                 print("Action group execution completed")
                 
                 // Clear the reference when done
@@ -234,9 +235,9 @@ final class ChatViewModel: ObservableObject {
     }
 
     // Computed context for prompting the LLM based on current viewableMessages
-    var history: [Message] {
+    var history: [LlamaMessage] {
         viewableMessages.map {
-            Message(role: $0.role, category: .chat, content: $0.content, date: $0.timestamp)
+            LlamaMessage(role: $0.role, category: .chat, content: $0.content, date: $0.timestamp)
         }
     }
 
@@ -276,7 +277,7 @@ final class ChatViewModel: ObservableObject {
     
     /// Manually trigger the decision response system
     func triggerDecisionResponse() async {
-        let lastMsg = history.last ?? Message(role: .assistant, category: .chat, content: "", date: Date())
+        let lastMsg = history.last ?? LlamaMessage(role: .assistant, category: .chat, content: "", date: Date())
         await decisionResponseGroup?.execute(with: lastMsg)
     }
 }

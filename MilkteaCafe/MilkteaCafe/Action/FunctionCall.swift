@@ -1,4 +1,5 @@
 import Foundation
+import LowkeyTeaLLM
 
 /// A class for handling function calling functionality with LLMs
 class FunctionCall {
@@ -8,7 +9,7 @@ class FunctionCall {
     private var isBuilt: Bool = false
     
     // Store the initial message for potential function chaining
-    private var initialMessage: Message? = nil
+    private var initialMessage: LlamaMessage? = nil
     
     /// Definition for a callable function
     struct FunctionDefinition {
@@ -142,7 +143,7 @@ class FunctionCall {
     }
     
     /// Process the LLM's JSON response to extract and execute the function call
-    func processResponse(_ response: String, initialMessage: Message? = nil) -> (didRun: Bool, result: Any) {
+    func processResponse(_ response: String, initialMessage: LlamaMessage? = nil) -> (didRun: Bool, result: Any) {
         // Store the initial message for potential use in function implementations
         if let initialMessage = initialMessage {
             self.initialMessage = initialMessage

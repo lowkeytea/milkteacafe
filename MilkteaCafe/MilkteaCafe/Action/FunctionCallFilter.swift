@@ -1,4 +1,5 @@
 import Foundation
+import LowkeyTeaLLM
 
 /// Special token filter for function calling
 /// Accumulates tokens until a complete JSON function call is detected

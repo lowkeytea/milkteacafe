@@ -1,6 +1,6 @@
 [submodule "llama.cpp"]
 	path = llama.cpp
 	url = https://github.com/ggml-org/llama.cpp.git
-[submodule "MilkteaLlamaKokoro/sherpa-onnx"]
-	path = MilkteaLlamaKokoro/sherpa-onnx
+[submodule "LowkeyTeaLLM/sherpa-onnx"]
+	path = LowkeyTeaLLM/sherpa-onnx
 	url = https://github.com/k2-fsa/sherpa-onnx.git

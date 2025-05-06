@@ -1,4 +1,5 @@
 import Foundation
+import LowkeyTeaLLM
 
 /// ActionGroup implementation for function calling
 /// Processes user input through function calling, 
@@ -68,7 +69,7 @@ class FunctionCallActionGroup: ActionGroup {
     
     /// Execute the full chain of actions
     @MainActor
-    func execute(with initialMessage: Message) async {
+    func execute(with initialMessage: LlamaMessage) async {
         // Create action queue for dependency-based execution
         let queue = ActionQueue()
         

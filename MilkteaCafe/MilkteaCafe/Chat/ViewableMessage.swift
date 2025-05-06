@@ -1,4 +1,5 @@
 import Foundation
+import LowkeyTeaLLM
 
 /// A lightweight, view-friendly representation of a chat message or summary
 struct ViewableMessage: Identifiable {
@@ -9,6 +10,13 @@ struct ViewableMessage: Identifiable {
 
     /// Initialize from a persistent Message object
     init(from message: Message) {
+        self.id = message.equatableId
+        self.role = message.role
+        self.content = message.content
+        self.timestamp = message.timestamp
+    }
+    
+    init(from message: LlamaMessage) {
         self.id = message.equatableId
         self.role = message.role
         self.content = message.content

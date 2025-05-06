@@ -1,6 +1,6 @@
 import Foundation
-class GemmaPromptFormatter: PromptFormatter {
-    func formatForRole(message: Message) -> String {
+public class GemmaPromptFormatter: PromptFormatter {
+    public func formatForRole(message: LlamaMessage) -> String {
         formatForRole(message: message, addSystem: "")
     }
     
@@ -24,7 +24,7 @@ class GemmaPromptFormatter: PromptFormatter {
     
     private var stopBuffer: String = ""
     
-    func format(messages: [Message], systemPrompt: String?) -> String {
+    public func format(messages: [LlamaMessage], systemPrompt: String?) -> String {
         var prompt = ""
         var systemContent = ""
         let allowedPromptTokens = LlamaConfig.shared.contextSize - LlamaConfig.shared.maxTokens
@@ -46,7 +46,7 @@ class GemmaPromptFormatter: PromptFormatter {
             prompt += formatForRole(message: firstMessage, addSystem: systemContent)
             messagesToProcess.removeFirst()
         } else if let firstMessage = messagesToProcess.first, firstMessage.role == .assistant {
-            prompt += formatForRole(message: Message(role: .user, content: systemContent), addSystem: "")
+            prompt += formatForRole(message: LlamaMessage(role: .user, content: systemContent), addSystem: "")
         }
         
         guard let latestMessage = messagesToProcess.last else {
@@ -84,7 +84,7 @@ class GemmaPromptFormatter: PromptFormatter {
         return prompt
     }
     
-    func formatForRole(message: Message, addSystem: String = "") -> String {
+    func formatForRole(message: LlamaMessage, addSystem: String = "") -> String {
         switch message.role {
         case .user:
             var content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -102,7 +102,7 @@ class GemmaPromptFormatter: PromptFormatter {
         }
     }
     
-    func roleToString(_ role: MessageRole) -> String {
+    public func roleToString(_ role: MessageRole) -> String {
         switch role {
         case .user:
             return GemmaPromptFormatter.USER
@@ -113,7 +113,7 @@ class GemmaPromptFormatter: PromptFormatter {
         }
     }
     
-    func checkStopSequence(_ text: String, tokenCount: Int, maxToken: Int) -> (String, String)? {
+    public func checkStopSequence(_ text: String, tokenCount: Int, maxToken: Int) -> (String, String)? {
         // Check for END_OF_HEADER first
         if text.hasSuffix(GemmaPromptFormatter.END_OF_HEADER) {
             return (String(text.dropLast(GemmaPromptFormatter.END_OF_HEADER.count)), GemmaPromptFormatter.END_OF_HEADER)
@@ -136,41 +136,11 @@ class GemmaPromptFormatter: PromptFormatter {
         return nil
     }
     
-    func estimateTokenCount(_ text: String) -> Int {
+    public func estimateTokenCount(_ text: String) -> Int {
         return Int(ceil(Double(text.count) / 4.0))
     }
     
-    func clearStopBuffer() {
+    public func clearStopBuffer() {
         stopBuffer = ""
-    }
-    
-    func getGrammarDefinition() -> String {
-        return #"""
-        root   ::= object
-        value  ::= object | array | string | number | ("true" | "false" | "null") ws
-
-        object ::=
-          "{" ws (
-                    string ":" ws value
-            ("," ws string ":" ws value)*
-          )? "}" ws
-
-        array  ::=
-          "[" ws (
-                    value
-            ("," ws value)*
-          )? "]" ws
-
-        string ::=
-          "\"" (
-            [^"\\\x7F\x00-\x1F] |
-            "\\" (["\\bfnrt] | "u" [0-9a-fA-F]{4}) # escapes
-          )* "\"" ws
-
-        number ::= ("-"? ([0-9] | [1-9] [0-9]{0,15})) ("." [0-9]+)? ([eE] [-+]? [0-9] [1-9]{0,15})? ws
-
-        # Optional space: by convention, applied in this grammar after literal chars when allowed
-        ws ::= | " " | "\n" [ \t]{0,20}
-        """#
     }
 }

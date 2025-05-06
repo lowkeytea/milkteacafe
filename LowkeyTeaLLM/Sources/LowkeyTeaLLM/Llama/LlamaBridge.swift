@@ -6,7 +6,7 @@ typealias LlamaLoraAdapter = OpaquePointer
 
 /// LlamaBridge is an actor registry that manages LlamaModel weights and LlamaContext instances
 /// It maintains backward compatibility by delegating operations to a default context
-actor LlamaBridge {
+public actor LlamaBridge {
     // MARK: - Sequence ID Management
     
     /// Sequence ID management to ensure unique IDs for each context 
@@ -14,7 +14,7 @@ actor LlamaBridge {
     private var assignedSequenceIds = Set<Int32>()
     
     /// Atomically generate a new unique sequence ID
-    func generateUniqueSequenceId() -> Int32 {
+    public func generateUniqueSequenceId() -> Int32 {
         // This runs within the actor so it's automatically synchronized
         let newId = nextSequenceId
         nextSequenceId += 1
@@ -23,7 +23,7 @@ actor LlamaBridge {
     }
     
     /// Release a sequence ID when no longer needed
-    func releaseSequenceId(_ id: Int32) {
+    public func releaseSequenceId(_ id: Int32) {
         assignedSequenceIds.remove(id)
         LoggerService.shared.debug("Released sequence ID: \(id), active IDs: \(assignedSequenceIds.count)")
     }
@@ -39,7 +39,7 @@ actor LlamaBridge {
     // MARK: - Singleton
     
     // Shared instance - accessible without await
-    static nonisolated let shared = LlamaBridge()
+    public static nonisolated let shared = LlamaBridge()
     
     // MARK: - Properties
     
@@ -64,7 +64,7 @@ actor LlamaBridge {
     ///   - modelPath: Path to the model file
     ///   - weightId: Optional unique identifier for these weights, defaults to the filename
     /// - Returns: The LlamaModel instance containing the weights
-    func loadModelWeights(modelPath: String, weightId: String? = nil) async throws -> LlamaModel {
+    public func loadModelWeights(modelPath: String, weightId: String? = nil) async throws -> LlamaModel {
         // Use filename as default weight ID if none provided
         let finalWeightId = weightId ?? URL(fileURLWithPath: modelPath).lastPathComponent
         
@@ -91,7 +91,7 @@ actor LlamaBridge {
     /// Explicitly unload model weights if they are not in use
     /// - Parameter weightId: ID of the weights to unload
     /// - Returns: True if weights were unloaded, false if they're still in use or don't exist
-    func unloadModelWeights(weightId: String) async -> Bool {
+    public func unloadModelWeights(weightId: String) async -> Bool {
         // Check if weights exist
         guard let weights = modelWeights[weightId] else {
             LoggerService.shared.warning("Cannot unload weights \(weightId): not found")
@@ -115,7 +115,7 @@ actor LlamaBridge {
     
     /// Get a list of all loaded weight IDs
     /// - Returns: Array of weight IDs
-    func getLoadedWeightIds() -> [String] {
+    public func getLoadedWeightIds() -> [String] {
         return Array(modelWeights.keys)
     }
     
@@ -126,7 +126,7 @@ actor LlamaBridge {
     ///   - id: Unique identifier for the context
     ///   - path: Optional path to the model file
     /// - Returns: The requested LlamaContext instance (actor-isolated)
-    func getContext(id: String, path: String? = nil) -> LlamaContext {
+    public func getContext(id: String, path: String? = nil) -> LlamaContext {
         if let existingContext = contexts[id] {
             return existingContext
         }
@@ -152,7 +152,7 @@ actor LlamaBridge {
     ///   - id: Unique identifier for the new context
     ///   - weightId: ID of the weights to use
     /// - Returns: The new LlamaContext instance using shared weights
-    func createSharedContext(id: String, weightId: String) async throws -> LlamaContext {
+    public func createSharedContext(id: String, weightId: String) async throws -> LlamaContext {
         // Verify weights exist
         guard let weights = modelWeights[weightId] else {
             throw LlamaError.modelNotLoaded
@@ -175,7 +175,7 @@ actor LlamaBridge {
     
     /// Get the current default context
     /// - Returns: The default LlamaContext or nil if none exists
-    func getDefaultContext() -> LlamaContext? {
+    public func getDefaultContext() -> LlamaContext? {
         guard let defaultId = defaultContextId, let context = contexts[defaultId] else {
             return nil
         }
@@ -186,7 +186,7 @@ actor LlamaBridge {
     /// Set a specific context as the default
     /// - Parameter id: The ID of the context to set as default
     /// - Returns: True if successful, false if the context doesn't exist
-    func setDefaultContext(id: String) -> Bool {
+    public func setDefaultContext(id: String) -> Bool {
         guard contexts[id] != nil else {
             LoggerService.shared.warning("Attempted to set non-existent context \(id) as default")
             return false
@@ -199,7 +199,7 @@ actor LlamaBridge {
     
     /// Unload a specific context
     /// - Parameter id: The ID of the context to unload
-    func unloadContext(id: String) async {
+    public func unloadContext(id: String) async {
         let contextToUnload = contexts[id]
         let isDefault = id == defaultContextId
         
@@ -231,14 +231,14 @@ actor LlamaBridge {
     
     /// Get a list of all loaded context IDs
     /// - Returns: Array of context IDs
-    func getLoadedContextIds() -> [String] {
+    public func getLoadedContextIds() -> [String] {
         return Array(contexts.keys)
     }
     
     /// Check if a specific context is loaded
     /// - Parameter id: The ID of the context to check
     /// - Returns: True if the context is loaded and initialized
-    func isContextLoaded(id: String) async -> Bool {
+    public func isContextLoaded(id: String) async -> Bool {
         guard let context = contexts[id] else { return false }
         return await context.isLoaded()
     }
@@ -247,18 +247,18 @@ actor LlamaBridge {
     
     /// Backward compatibility for getModel - now redirects to getContext
     @available(*, deprecated, message: "Use getContext instead")
-    func getModel(id: String, path: String? = nil) -> LlamaContext {
+    public func getModel(id: String, path: String? = nil) -> LlamaContext {
         return getContext(id: id, path: path)
     }
     
     /// Backward compatibility for getDefaultModel - now redirects to getDefaultContext
     @available(*, deprecated, message: "Use getDefaultContext instead")
-    func getDefaultModel() -> LlamaContext? {
+    public func getDefaultModel() -> LlamaContext? {
         return getDefaultContext()
     }
     
     /// Check if the model has been restarted - for backward compatibility
-    func isRestarted() async -> Bool {
+    public func isRestarted() async -> Bool {
         if let context = getDefaultContext() {
             return await context.restarted
         }
@@ -266,7 +266,7 @@ actor LlamaBridge {
     }
     
     /// Check if any model is loaded (for backward compatibility)
-    func isLoaded() async -> Bool {
+    public func isLoaded() async -> Bool {
         guard let context = getDefaultContext() else { return false }
         return await context.isLoaded()
     }
@@ -276,7 +276,7 @@ actor LlamaBridge {
     ///   - modelPath: Path to the model file
     ///   - formatter: Optional prompt formatter
     /// - Returns: True if the model was loaded successfully
-    func loadModel(modelPath: String, formatter: PromptFormatter? = nil) async -> Bool {
+    public func loadModel(modelPath: String, formatter: PromptFormatter? = nil) async -> Bool {
         // Generate a model ID from the path
         let modelId = URL(fileURLWithPath: modelPath).lastPathComponent
         
@@ -305,7 +305,7 @@ actor LlamaBridge {
     
     /// A synchronous wrapper for loadModel that can be called without await
     /// Returns immediately but performs loading asynchronously
-    nonisolated func loadModelAndNotify(modelPath: String, formatter: PromptFormatter? = nil) {
+    public nonisolated func loadModelAndNotify(modelPath: String, formatter: PromptFormatter? = nil) {
         Task {
             let success = await loadModel(modelPath: modelPath, formatter: formatter)
             
@@ -316,7 +316,7 @@ actor LlamaBridge {
     }
     
     /// Switch the current agent (backward compatibility)
-    func switchAgent(_ newAgent: String) async throws {
+    public func switchAgent(_ newAgent: String) async throws {
         guard let defaultContext = getDefaultContext() else {
             throw LlamaError.modelNotLoaded
         }
@@ -334,38 +334,38 @@ actor LlamaBridge {
     }
     
     /// Check if generation should continue
-    func shouldContinueGeneration() async -> Bool {
+    public func shouldContinueGeneration() async -> Bool {
         guard let context = getDefaultContext() else { return false }
         return await context.shouldContinueGeneration()
     }
     
     /// Complete the next token in generation - properly handles actor isolation
-    func completionLoop(maxTokens: Int, currentToken: inout Int) async -> String? {
+    public func completionLoop(maxTokens: Int, currentToken: inout Int) async -> String? {
         guard let context = getDefaultContext() else { return nil }
         return await context.completionLoop(maxTokens: maxTokens, currentToken: &currentToken)
     }
     
     /// Append a user message for processing - properly handles actor isolation
-    func appendUserMessage(userMessage: String) async {
+    public func appendUserMessage(userMessage: String) async {
         if let context = getDefaultContext() {
             await context.appendUserMessage(userMessage: userMessage)
         }
     }
     
     /// Initialize completion with the given text - properly handles actor isolation
-    func completionInit(_ text: String, setLogits: Bool = true) async -> Bool {
+    public  func completionInit(_ text: String, setLogits: Bool = true) async -> Bool {
         return await getDefaultContext()?.completionInit(text, setLogits: setLogits) ?? false
     }
     
     /// Clear the context and optionally the KV cache
-    func clearContext(clearKvCache: Bool = true) async {
+    public func clearContext(clearKvCache: Bool = true) async {
         if let context = getDefaultContext() {
             await context.clearContext(clearKvCache: clearKvCache)
         }
     }
     
     /// Check if a context reset is pending
-    func checkResetPending() async -> Bool {
+    public func checkResetPending() async -> Bool {
         guard let context = getDefaultContext() else { return false }
         return await context.checkResetPending()
     }
@@ -373,7 +373,7 @@ actor LlamaBridge {
     // MARK: - Cleanup
     
     /// Unload all contexts and clean up
-    func unloadAllContexts() async {
+    public func unloadAllContexts() async {
         let contextIds = getLoadedContextIds()
         for id in contextIds {
             await unloadContext(id: id)
@@ -381,7 +381,7 @@ actor LlamaBridge {
     }
     
     /// Unload all contexts and weights
-    func unloadAll() async {
+    public func unloadAll() async {
         // First unload all contexts
         await unloadAllContexts()
         
@@ -398,12 +398,12 @@ actor LlamaBridge {
     
     /// Unload all models - backward compatibility
     @available(*, deprecated, message: "Use unloadAllContexts or unloadAll instead")
-    func unloadAllModels() async {
+    public func unloadAllModels() async {
         await unloadAllContexts()
     }
     
     /// Clean up the default model (backward compatibility)
-    func cleanup() async {
+    public func cleanup() async {
         guard let defaultContext = getDefaultContext() else {
             return
         }
@@ -412,7 +412,7 @@ actor LlamaBridge {
     }
     
     /// Clear the KV cache for the default context (backward compatibility)
-    func clearKVCache() async {
+    public func clearKVCache() async {
         if let context = getDefaultContext() {
             await context.clearKVCache()
         }
@@ -527,13 +527,13 @@ actor LlamaBridge {
 
 // MARK: - ModelState Enum
 
-enum ModelState: Equatable {
+public enum ModelState: Equatable {
     case unloaded
     case loading
     case loaded
     case error(Error)
     
-    static func == (lhs: ModelState, rhs: ModelState) -> Bool {
+    public static func == (lhs: ModelState, rhs: ModelState) -> Bool {
         switch (lhs, rhs) {
         case (.unloaded, .unloaded),
              (.loading, .loading),

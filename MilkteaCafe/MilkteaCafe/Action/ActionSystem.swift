@@ -1,4 +1,5 @@
 import Foundation
+import LowkeyTeaLLM
 
 /// Specifies which model to use for an Action.
 enum ModelType {
@@ -9,10 +10,10 @@ enum ModelType {
 /// Defines a unit of work that can drive LLM generations, run custom code, and fire a post-action hook.
 protocol Action {
     /// The full chat messages (history & prompt) to send to the LLM.
-    var messages: [Message] { get }
+    var messages: [LlamaMessage] { get }
     
     // The new message to add
-    var message: Message { get }
+    var message: LlamaMessage { get }
     
     var systemPrompt: String { get }
 
@@ -41,8 +42,8 @@ protocol Action {
 
 /// A type-erased Action allowing runCode and postAction closures
 struct AnyAction: Action {
-    let messages: [Message]
-    private(set) var message: Message
+    let messages: [LlamaMessage]
+    private(set) var message: LlamaMessage
     private(set) var systemPrompt: String
     let clearKVCache: Bool
     let modelType: ModelType
@@ -50,21 +51,21 @@ struct AnyAction: Action {
     // New property for streaming UI updates
     let progressHandler: ((String) -> Void)?
     // New property for lazy preparation
-    private let prepareActionClosure: ([String: Any]) async -> (Bool, Message?, String?)
+    private let prepareActionClosure: ([String: Any]) async -> (Bool, LlamaMessage?, String?)
     private let runCodeClosure: (String) -> (didRun: Bool, result: Any)
     private let postActionClosure: (Any) -> Void
 
     init(
         systemPrompt: String,
-        messages: [Message],
-        message: Message,
+        messages: [LlamaMessage],
+        message: LlamaMessage,
         clearKVCache: Bool,
         modelType: ModelType,
         tokenFilter: TokenFilter? = nil,
         // New optional parameter for handling streamed tokens
         progressHandler: ((String) -> Void)? = nil,
         // parameter for lazy preparation that can update both message and system prompt
-        prepare: @escaping ([String: Any]) async -> (Bool, Message?, String?) = { _ in return (true, nil, nil) },
+        prepare: @escaping ([String: Any]) async -> (Bool, LlamaMessage?, String?) = { _ in return (true, nil, nil) },
         runCode: @escaping (String) -> (didRun: Bool, result: Any),
         postAction: @escaping (Any) -> Void
     ) {

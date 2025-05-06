@@ -1,6 +1,8 @@
+import LowkeyTeaLLM
+
 protocol ActionGroup {
     /// Execute the full sequence of actions
-    func execute(with initialMessage: Message) async
+    func execute(with initialMessage: LlamaMessage) async
     
     /// Access final results from all actions
     var results: [String: Any] { get }

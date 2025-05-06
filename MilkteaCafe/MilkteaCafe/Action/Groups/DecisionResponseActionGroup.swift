@@ -1,4 +1,5 @@
 import Foundation
+import LowkeyTeaLLM
 
 /// Manages decision-based autonomous responses when the user is idle
 /// Uses a multi-stage approach:
@@ -72,14 +73,14 @@ class DecisionResponseActionGroup: ActionGroup {
         progressHandlers[actionId]?.forEach { $0(token) }
     }
     
-    func execute(with initialMessage: Message) async {
+    func execute(with initialMessage: LlamaMessage) async {
 
         // Begin the decision process - now always runs since probability is managed externally
         await runDecisionAction(initialMessage: initialMessage)
     }
     
     // MARK: - Decision Action
-    private func runDecisionAction(initialMessage: Message) async {
+    private func runDecisionAction(initialMessage: LlamaMessage) async {
         // Get recent messages for context
         let recentMessages = await MainActor.run {
             MessageStore.shared.getRecentMessages(category: .chat, limit: 20)
@@ -177,7 +178,7 @@ Broader context from conversation history summaries for reference:
         let decisionAction = AnyAction(
             systemPrompt: "",
             messages: [],
-            message: Message(role: .user, content: decisionPrompt),
+            message: LlamaMessage(role: .user, content: decisionPrompt),
             clearKVCache: true,
             modelType: .thinking,
             tokenFilter: FullResponseFilter(),
@@ -251,7 +252,7 @@ The user will not see these instructions or the idea list. They will only see yo
         let responseAction = await AnyAction(
             systemPrompt: viewModel.chatSystemPrompt,
             messages: [],
-            message: Message(role: .user, content: responsePrompt),
+            message: LlamaMessage(role: .user, content: responsePrompt),
             clearKVCache: false,
             modelType: .chat,
             tokenFilter: determineOptimalTokenFilter(),

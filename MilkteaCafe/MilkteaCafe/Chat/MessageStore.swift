@@ -1,5 +1,6 @@
 import Foundation
 import ObjectBox
+import LowkeyTeaLLM
 
 class MessageStore {
     static let shared = MessageStore()
@@ -29,7 +30,11 @@ class MessageStore {
         }
     }
     
-    func getRecentMessages(category: MessageCategory, limit: Int = 10) -> [Message] {
+    static func toLlamaMessages(_ messages: [Message]) -> [LlamaMessage] {
+        return messages.map { $0.toLlamaMessage() }
+    }
+    
+    func getRecentMessages(category: MessageCategory, limit: Int = 10) -> [LlamaMessage] {
         guard let box = messages else {
             return []
         }
@@ -40,7 +45,7 @@ class MessageStore {
                 .ordered(by: Message.timestamp, flags: [.descending])
                 .build()
                 .find(offset: 0, limit: limit)
-            return found.reversed()
+            return MessageStore.toLlamaMessages(found.reversed())
         } catch {
             return []
         }

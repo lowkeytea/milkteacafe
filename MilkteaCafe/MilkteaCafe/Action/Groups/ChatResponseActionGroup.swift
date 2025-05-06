@@ -1,3 +1,5 @@
+import LowkeyTeaLLM
+
 class ChatResponseActionGroup: ActionGroup {
     // Storage for final results
     private(set) var results: [String: Any] = [:]
@@ -35,14 +37,14 @@ class ChatResponseActionGroup: ActionGroup {
     }
     
     /// Execute the full chain of actions
-    func execute(with initialMessage: Message) async {
+    func execute(with initialMessage: LlamaMessage) async {
         // Start with tone analysis
         await runToneAction(initialMessage: initialMessage)
     }
     
     // MARK: - Individual Action Execution Methods
     
-    private func runToneAction(initialMessage: Message) async {
+    private func runToneAction(initialMessage: LlamaMessage) async {
         guard let viewModel = viewModel else { return }
         
         
@@ -66,7 +68,7 @@ class ChatResponseActionGroup: ActionGroup {
         let toneAction = AnyAction(
             systemPrompt: systemPrompt,
             messages: [],
-            message: Message(role: .user, content: tonePrompt),
+            message: LlamaMessage(role: .user, content: tonePrompt),
             clearKVCache: true,
             modelType: .thinking,
             tokenFilter: FullResponseFilter(),
@@ -96,7 +98,7 @@ class ChatResponseActionGroup: ActionGroup {
         await ActionRunner.shared.run(toneAction)
     }
     
-    private func runChatAction(initialMessage: Message, tone: String) async {
+    private func runChatAction(initialMessage: LlamaMessage, tone: String) async {
         guard let viewModel = viewModel else { return }
         
         // Get template and create content on the main actor
@@ -122,7 +124,7 @@ class ChatResponseActionGroup: ActionGroup {
         let chatAction = AnyAction(
             systemPrompt: systemPrompt,
             messages: history,
-            message: Message(role: .user, content: chatContent),
+            message: LlamaMessage(role: .user, content: chatContent),
             clearKVCache: false,
             modelType: .chat,
             tokenFilter: usesTTS ? SentenceFilter() : PassThroughFilter(),
@@ -166,7 +168,7 @@ class ChatResponseActionGroup: ActionGroup {
         let summaryAction = AnyAction(
             systemPrompt: "You are an AI agent who summarizes conversations. Focus on capturing the key details of the conversation.",
             messages: [],
-            message: Message(role: .user, content: summaryPrompt),
+            message: LlamaMessage(role: .user, content: summaryPrompt),
             clearKVCache: true,
             modelType: .thinking,
             tokenFilter: FullResponseFilter(),

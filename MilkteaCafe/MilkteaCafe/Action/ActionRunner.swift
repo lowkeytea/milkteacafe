@@ -1,3 +1,5 @@
+import LowkeyTeaLLM
+
 /// Responsible for executing Actions in sequence against one or more LlamaContexts.
 actor ActionRunner {
     /// Shared singleton for running Actions.
@@ -257,7 +259,7 @@ actor ActionRunner {
     }
 
     /// Helper to accumulate a streamed AsyncStream<String> into a single String.
-    private func collectFullResponse(from context: LlamaContext, messages: [Message], systemPrompt: String, message: Message) async -> String {
+    private func collectFullResponse(from context: LlamaContext, messages: [LlamaMessage], systemPrompt: String, message: LlamaMessage) async -> String {
         var full = ""
         let stream = await ResponseGenerator.shared.generate(
             llama: context,

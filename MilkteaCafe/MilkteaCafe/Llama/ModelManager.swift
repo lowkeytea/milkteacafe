@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import OSLog
+import LowkeyTeaLLM
 
 enum DownloadState: Equatable {
     case notDownloaded
@@ -221,7 +222,7 @@ final class ModelManager: ObservableObject {
         }
         
         // Check with LlamaBridge to see if this model actually has weights loaded
-        // We do this asynchronously but don't wait for the result - this is just for state synchronization
+        // We do this asynchronously but don't wait for the result - this is just for state synchronization
         Task {
             if let descriptor = modelInfos.first(where: { $0.id == modelId })?.descriptor,
                await LlamaBridge.shared.getLoadedWeightIds().contains(modelId) {

@@ -1,8 +1,8 @@
 import Foundation
 
-protocol PromptFormatter {
+public protocol PromptFormatter {
     
-    func format(messages: [Message], systemPrompt: String?) -> String
+    func format(messages: [LlamaMessage], systemPrompt: String?) -> String
     
     func checkStopSequence(_ text: String, tokenCount: Int, maxToken: Int) -> (String, String)?
     
@@ -10,9 +10,7 @@ protocol PromptFormatter {
     
     func clearStopBuffer()
     
-    func formatForRole(message: Message) -> String
-    
-    func getGrammarDefinition() -> String
+    func formatForRole(message: LlamaMessage) -> String
     
     func roleToString(_ role: MessageRole) -> String
 }

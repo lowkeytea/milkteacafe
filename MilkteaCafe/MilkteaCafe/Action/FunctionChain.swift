@@ -1,4 +1,5 @@
 import Foundation
+import LowkeyTeaLLM
 
 /// Class for managing sequences of function calls
 class FunctionChain {
@@ -11,7 +12,7 @@ class FunctionChain {
         let systemPrompt: String
         
         /// Message generator for this step
-        let messageGenerator: (_ previousResults: [String: Any], _ initialMessage: Message) -> Message
+        let messageGenerator: (_ previousResults: [String: Any], _ initialMessage: LlamaMessage) -> LlamaMessage
         
         /// Result handler for this step
         let resultHandler: (_ result: Any, _ previousResults: [String: Any]) -> [String: Any]
@@ -30,7 +31,7 @@ class FunctionChain {
     private var stepResults: [String: Any] = [:]
     
     /// The initial message that triggered the chain
-    private var initialMessage: Message?
+    private var initialMessage: LlamaMessage?
     
     /// The completion handler to call when the chain is complete
     private var completionHandler: ((_ results: [String: Any]) -> Void)?
@@ -46,7 +47,7 @@ class FunctionChain {
     }
     
     /// Execute the chain with an initial message
-    func execute(with message: Message, completion: @escaping (_ results: [String: Any]) -> Void) async {
+    func execute(with message: LlamaMessage, completion: @escaping (_ results: [String: Any]) -> Void) async {
         self.initialMessage = message
         self.completionHandler = completion
         self.stepResults = [:]

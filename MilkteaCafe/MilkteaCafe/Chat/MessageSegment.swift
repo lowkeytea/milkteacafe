@@ -1,5 +1,6 @@
 import ObjectBox
 import Foundation
+import LowkeyTeaLLM
 
 // MessageSegment represents a single segment of a message with its own embedding
 // objectbox: entity

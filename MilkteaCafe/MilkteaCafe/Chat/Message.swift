@@ -1,4 +1,5 @@
 import Foundation
+import LowkeyTeaLLM
 import ObjectBox
 
 // objectbox: entity
@@ -23,12 +24,25 @@ class Message: Identifiable, Equatable {
         self.timestamp = Date()
     }
     
+    init(llamaMessage: LlamaMessage) {
+        self.role = llamaMessage.role
+        self.content = llamaMessage.content
+        self.category = llamaMessage.category
+        self.equatableId = llamaMessage.equatableId
+        self.timestamp = llamaMessage.timestamp
+    }
+    
     init(role: MessageRole, category: MessageCategory = .chat, content: String, date: Date = Date()) {
         self.role = role
         self.equatableId = UUID()
         self.category = category
         self.content = content
         self.timestamp = date
+    }
+    
+    
+    func toLlamaMessage() -> LlamaMessage {
+        return LlamaMessage(role: self.role, category: self.category, content: self.content, date: self.timestamp)
     }
     
     static func == (lhs: Message, rhs: Message) -> Bool {
@@ -40,17 +54,3 @@ class Message: Identifiable, Equatable {
         lhs.equatableId == rhs.equatableId
     }
 }
-
-enum MessageRole: String {
-    case user = "user"
-    case system = "system"
-    case assistant = "assistant"
-}
-
-enum MessageCategory: String {
-    case chat = "chat"
-    case userInfo = "userInfo"
-    case assistantInfo = "assistantInfo"
-    case summary = "summary"
-}
-

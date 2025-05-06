@@ -1,5 +1,5 @@
 import SwiftUI
-import MilkteaLlamaKokoro
+import LowkeyTeaLLM
 
 @MainActor
 struct ChatView: View {

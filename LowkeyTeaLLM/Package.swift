@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "MilkteaLlamaKokoro",
+    name: "LowkeyTeaLLM",
     platforms: [
         .iOS(.v16)
     ],
     products: [
         .library(
-            name: "MilkteaLlamaKokoro",
-            targets: ["MilkteaLlamaKokoro"]
+            name: "LowkeyTeaLLM",
+            targets: ["LowkeyTeaLLM"]
         )
     ],
     targets: [
@@ -34,7 +34,7 @@ let package = Package(
                 ]
         ),
         .target(
-            name: "MilkteaLlamaKokoro",
+            name: "LowkeyTeaLLM",
             dependencies: [
                 "SherpaOnnx",
                 "SherpaOnnxUtils",

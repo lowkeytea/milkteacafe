@@ -2,7 +2,7 @@
 
 set -e
 
-dir=sherpa-onnx/build-ios
+dir=LowkeyTeaLLM/sherpa-onnx/build-ios
 mkdir -p $dir
 cd $dir
 onnxruntime_version=1.18.1

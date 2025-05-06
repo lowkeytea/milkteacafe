@@ -5,7 +5,7 @@ import OSLog
 
 /// An actor representing an individual llama model instance
 /// Handles loading, unloading, and using a specific model
-actor LlamaContext {
+public actor LlamaContext {
     // MARK: - Properties
     
     /// Unique identifier for this model instance
@@ -244,7 +244,7 @@ actor LlamaContext {
     
     /// Load a model from the specified path
     /// This function is async to allow for proper actor isolation
-    func loadModel(modelPath: String, formatter: PromptFormatter? = nil) async -> Bool {
+    public func loadModel(modelPath: String, formatter: PromptFormatter? = nil) async -> Bool {
         // Set cancellation flag
         setCancelled(false)
         
@@ -475,7 +475,7 @@ actor LlamaContext {
     }
     
     /// Clear the context and optionally the KV cache
-    func clearContext(clearKvCache: Bool = true) {
+    public func clearContext(clearKvCache: Bool = true) {
         guard let context = context else { return }
         llama_kv_self_clear(context)
         

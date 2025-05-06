@@ -4,6 +4,7 @@
 // swiftlint:disable all
 import ObjectBox
 import Foundation
+import LowkeyTeaLLM
 
 // MARK: - Entity metadata
 

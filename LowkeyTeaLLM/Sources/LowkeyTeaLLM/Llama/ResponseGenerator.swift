@@ -1,24 +1,27 @@
 import Foundation
 
 /// Protocol to filter raw tokens into units (e.g. tokens or sentences)
-protocol TokenFilter {
+public protocol TokenFilter {
     mutating func process(token: String) -> [String]
     mutating func flush() -> [String]
 }
 
 /// A filter that yields each token immediately
-struct PassThroughFilter: TokenFilter {
-    mutating func process(token: String) -> [String] { [token] }
-    mutating func flush() -> [String] { [] }
+public struct PassThroughFilter: TokenFilter {
+    mutating public func process(token: String) -> [String] { [token] }
+    mutating public func flush() -> [String] { [] }
+    public init() {}
 }
 
 /// A simple sentence filter that yields buffered text when a sentence end is detected
-struct SentenceFilter: TokenFilter {
+public struct SentenceFilter: TokenFilter {
     private var buffer: String = ""
     private let endingChars = CharacterSet(charactersIn: ".!?" )
     private let minLength: Int
-    init(minLength: Int = 20) { self.minLength = minLength }
-    mutating func process(token: String) -> [String] {
+    public init(minLength: Int = 20) { self.minLength = minLength }
+    public init() { self.minLength = 20 }
+    
+    mutating public func process(token: String) -> [String] {
         buffer += token
         // If buffer is long enough and ends with a sentence-ending character
         if buffer.count >= minLength,
@@ -30,7 +33,7 @@ struct SentenceFilter: TokenFilter {
         }
         return []
     }
-    mutating func flush() -> [String] {
+    mutating public func flush() -> [String] {
         guard !buffer.isEmpty else { return [] }
         let leftover = buffer
         buffer = ""
@@ -39,21 +42,23 @@ struct SentenceFilter: TokenFilter {
 }
 
 /// A filter that buffers all tokens and emits the full response only at the end
-struct FullResponseFilter: TokenFilter {
+public struct FullResponseFilter: TokenFilter {
     private var buffer: String = ""
-    mutating func process(token: String) -> [String] {
+    mutating public func process(token: String) -> [String] {
         buffer += token
         return []
     }
-    mutating func flush() -> [String] {
+    mutating public func flush() -> [String] {
         defer { buffer = "" }
         return [buffer]
     }
+    
+    public init() {}
 }
 
 /// Actor responsible for formatting prompts and streaming tokens from a LlamaContext
-actor ResponseGenerator {
-    static let shared = ResponseGenerator()
+public actor ResponseGenerator {
+    public static let shared = ResponseGenerator()
 
     /// Generate a filtered async stream of text units from a LlamaContext
     /// - Parameters:
@@ -63,11 +68,11 @@ actor ResponseGenerator {
     ///   - newUserMessage: the new user ChatMessage to append
     ///   - filter: a TokenFilter to control unit emissions
     /// - Returns: an AsyncStream of String units (tokens or sentences)
-    func generate(
+    public func generate(
         llama context: LlamaContext,
-        history: [Message],
+        history: [LlamaMessage],
         systemPrompt: String,
-        newUserMessage: Message,
+        newUserMessage: LlamaMessage,
         filter: TokenFilter = PassThroughFilter()
     ) -> AsyncStream<String> {
         let formatter = GemmaPromptFormatter()
@@ -75,11 +80,11 @@ actor ResponseGenerator {
             // Start generation task
             let task = Task.detached(priority: .userInitiated) {
                 // Build formatted prompt messages
-                var promptMessages: [Message] = history.map { chat in
-                    Message(role: chat.role == .user ? .user : .assistant,
+                var promptMessages: [LlamaMessage] = history.map { chat in
+                    LlamaMessage(role: chat.role == .user ? .user : .assistant,
                             content: chat.content)
                 }
-                let newMsg = Message(role: .user, content: newUserMessage.content)
+                let newMsg = LlamaMessage(role: .user, content: newUserMessage.content)
                 promptMessages.append(newMsg)
 
                 // Initialize or append to context
@@ -87,7 +92,7 @@ actor ResponseGenerator {
                     // Prepend system instruction for the very first turn
                     
                     promptMessages.insert(
-                        Message(role: .system, content: systemPrompt),
+                        LlamaMessage(role: .system, content: systemPrompt),
                         at: 0
                     )
                     // Format the full prompt for initialization

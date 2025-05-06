@@ -3,7 +3,7 @@ import llama
 
 /// An actor representing shared model weights for llama models
 /// Multiple LlamaModel instances can share these weights
-actor LlamaModel {
+public actor LlamaModel {
     /// Unique identifier for this weights instance
     nonisolated let id: String
     

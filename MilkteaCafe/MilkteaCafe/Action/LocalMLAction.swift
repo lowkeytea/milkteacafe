@@ -1,11 +1,12 @@
 import Foundation
+import LowkeyTeaLLM
 
 /// A specialized action for local ML processing that doesn't use the LLM.
 /// This is used for lightweight classification and prediction tasks.
 struct LocalMLAction: Action {
     // Standard Action protocol conformance
-    var messages: [Message] { [] }
-    let message: Message
+    var messages: [LlamaMessage] { [] }
+    let message: LlamaMessage
     let systemPrompt: String = ""
     let clearKVCache: Bool = false
     let modelType: ModelType = .thinking // Keep as thinking type for execution flow
@@ -15,7 +16,7 @@ struct LocalMLAction: Action {
     private let postActionClosure: (Any) -> Void
     
     init(
-        inputMessage: Message,
+        inputMessage: LlamaMessage,
         process: @escaping (String) -> Any,
         postAction: @escaping (Any) -> Void
     ) {

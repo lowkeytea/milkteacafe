@@ -1,5 +1,6 @@
 import Foundation
 import ObjectBox
+import LowkeyTeaLLM
 
 class ObjectBoxManager {
     static let shared = ObjectBoxManager()

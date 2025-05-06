@@ -1,18 +1,19 @@
 import Foundation
 import CoreML
+import LowkeyTeaLLM
 
 /// Extension containing factory methods for creating actions
 extension FunctionCallActionGroup {
     
     /// Creates a tone analysis action using the ML classifier
-    func createToneAction(initialMessage: Message, completion: @escaping (Any) -> Void) -> Action {
+    func createToneAction(initialMessage: LlamaMessage, completion: @escaping (Any) -> Void) -> Action {
         guard viewModel != nil else {
             return createEmptyAction(completion: completion)
         }
         
         // Create a LocalMLAction instead of AnyAction to bypass the LLM
         return LocalMLAction(
-            inputMessage: Message(role: .user, content: initialMessage.content),
+            inputMessage: LlamaMessage(role: .user, content: initialMessage.content),
             // Process function executes the ML model directly
             process: { messageContent in
                 // Use the registry to get the classifier
@@ -70,7 +71,7 @@ extension FunctionCallActionGroup {
     }
     
     /// Creates a function call action, first checking if it's a function with the BaseFunctionClassifier
-    func createFunctionCallAction(initialMessage: Message, completion: @escaping (Any) -> Void) -> Action {
+    func createFunctionCallAction(initialMessage: LlamaMessage, completion: @escaping (Any) -> Void) -> Action {
         // Check for "noOperation" first, before creating any LLM action
         do {
             let functionClassifier = try BaseFunctionClassifier()
@@ -116,7 +117,7 @@ extension FunctionCallActionGroup {
         return AnyAction(
             systemPrompt: "PLACEHOLDER_SYSTEM_PROMPT", // Placeholder to be replaced during preparation
             messages: [],
-            message: Message(role: .system, content: "PLACEHOLDER_MESSAGE"),
+            message: LlamaMessage(role: .system, content: "PLACEHOLDER_MESSAGE"),
             clearKVCache: true,
             modelType: .thinking,
             tokenFilter: FunctionCallFilter(),
@@ -125,7 +126,7 @@ extension FunctionCallActionGroup {
                 self?.notifyProgress(actionId: ActionId.functionCall, token: token)
             },
             // Lazy preparation function
-            prepare: { [weak self, initialMessage] dependencies -> (Bool, Message?, String?) in
+            prepare: { [weak self, initialMessage] dependencies -> (Bool, LlamaMessage?, String?) in
                 guard let self = self else {
                     return (false, nil, nil)
                 }
@@ -137,7 +138,7 @@ extension FunctionCallActionGroup {
                 #endif
                 
                 // Create a real user message to provide to the LLM
-                let userMessage = Message(role: .user, content: initialMessage.content)
+                let userMessage = LlamaMessage(role: .user, content: initialMessage.content)
                 
                 // Return success, with the user message and the system prompt
                 return (true, userMessage, systemPrompt)
@@ -170,7 +171,7 @@ extension FunctionCallActionGroup {
     
     /// Creates a chat action using the lazy preparation pattern
     func createChatAction(
-        initialMessage: Message, 
+        initialMessage: LlamaMessage,
         toneId: String,
         completion: @escaping (Any) -> Void
     ) async -> Action {
@@ -196,7 +197,7 @@ extension FunctionCallActionGroup {
                 self?.notifyProgress(actionId: ActionId.chat, token: token)
             },
             // New lazy preparation closure - only runs right before execution
-            prepare: { [weak self, toneId] dependencies -> (Bool, Message?, String?) in
+            prepare: { [weak self, toneId] dependencies -> (Bool, LlamaMessage?, String?) in
                 guard let self = self else {
                     LoggerService.shared.warning("Chat action preparation failed: self is nil")
                     return (false, nil, nil)
@@ -232,7 +233,7 @@ extension FunctionCallActionGroup {
                 #endif
                 
                 // Create a new message with the formatted content
-                let userMessage = Message(
+                let userMessage = LlamaMessage(
                     role: .user,
                     category: initialMessage.category,
                     content: formattedPrompt,
@@ -260,7 +261,7 @@ extension FunctionCallActionGroup {
         return AnyAction(
             systemPrompt: "You are an AI agent who summarizes conversations. Focus on capturing the key details of the conversation.",
             messages: [],
-            message: Message(role: .user, content: ""), // Will be prepared at execution time
+            message: LlamaMessage(role: .user, content: ""), // Will be prepared at execution time
             clearKVCache: true,
             modelType: .thinking,
             tokenFilter: FullResponseFilter(),
@@ -269,7 +270,7 @@ extension FunctionCallActionGroup {
                 self?.notifyProgress(actionId: ActionId.summary, token: token)
             },
             // Lazy preparation that can use dependencies
-            prepare: { [chatId = ActionId.chat, functionId = ActionId.functionCall] dependencies -> (Bool, Message?, String?) in
+            prepare: { [chatId = ActionId.chat, functionId = ActionId.functionCall] dependencies -> (Bool, LlamaMessage?, String?) in
 
                 // Log the dependencies we're using
                 #if DEBUG
@@ -295,7 +296,7 @@ extension FunctionCallActionGroup {
                 let summaryPrompt = "Summarize the following conversation in the form of 3 or less sentences for the user, and 3 or less for the assistant: \n\n\(content)"
                 
                 // Create the message with the content
-                let message = Message(role: .user, content: summaryPrompt)
+                let message = LlamaMessage(role: .user, content: summaryPrompt)
                 
                 return (true, message, nil)
             },
@@ -312,12 +313,12 @@ extension FunctionCallActionGroup {
         return AnyAction(
             systemPrompt: "",
             messages: [],
-            message: Message(role: .user, content: ""),
+            message: LlamaMessage(role: .user, content: ""),
             clearKVCache: false,
             modelType: .thinking,
             tokenFilter: nil,
             progressHandler: nil,
-            prepare: { _ -> (Bool, Message?, String?) in return (true, nil, nil) },
+            prepare: { _ -> (Bool, LlamaMessage?, String?) in return (true, nil, nil) },
             runCode: { _ in (false, "Error: Missing viewModel") },
             postAction: { _ in 
                 completion("Error: Missing viewModel")

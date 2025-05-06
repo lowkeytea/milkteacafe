@@ -1,6 +1,6 @@
 import Foundation
 
-enum LlamaError: Error {
+public enum LlamaError: Error {
     case couldNotInitializeContext
     case decodingFailed
     case invalidInput
