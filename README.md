@@ -2,6 +2,10 @@
 
 A Swift platform for integrating large language models and text-to-speech capabilities on Apple platforms. LowkeyTeaLLM combines the power of llama.cpp for local LLM inference with sherpa-onnx for high-quality text-to-speech.
 
+## Demo
+
+https://github.com/lowkeytea/milkteacafe/assets/MilkteaCafe.mp4
+
 ## Overview
 
 LowkeyTeaLLM is a lightweight native Swift library that wraps llama.cpp, aiming to emulate core features of llama-server while minimizing overhead. The library provides an efficient way to run LLMs locally on Apple devices with optimized memory usage through weight sharing.
